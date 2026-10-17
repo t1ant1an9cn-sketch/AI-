@@ -1,0 +1,62 @@
+# 每次推送都在 GitHub 的 Windows 和 macOS 机器上安装依赖、构建界面、跑全部测试（公开仓库免费）。
+# 开发用的电脑是 Windows，macOS 上能不能装、能不能跑只靠这里验证。
+name: 测试
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      UV_PYTHON: "3.12"
+      PYTHONIOENCODING: utf-8
+      # 识别模型放在缓存目录里，测试会用它跑真实识别（tests/conftest.py 读这个变量）
+      VOICEDETECT_MODELS: ${{ github.workspace }}/.models
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装 Python 依赖
+        run: uv sync --locked
+
+      - name: 代码检查
+        run: uv run ruff check . && uv run ruff format --check .
+
+      - name: 界面：测试、类型检查、构建
+        working-directory: frontend
+        run: npm ci && npm test && npm run typecheck && npm run build
+
+      - name: 缓存识别模型
+        uses: actions/cache@v6
+        with:
+          path: .models
+          key: sensevoice-${{ hashFiles('voicedetect/asr/models.py') }}
+
+      - name: 下载识别模型
+        run: uv run voicedetect models download --source huggingface
+
+      - name: 后端测试
+        run: uv run pytest -q -rs --junitxml=junit.xml
+
+      - name: 把失败的测试标到运行结果里
+        if: failure()
+        run: uv run python .github/scripts/annotate.py junit.xml

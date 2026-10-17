@@ -69,6 +69,10 @@ COMMON_FLAGS = [
     # 新资料目录会弹出 Edge 的同步确认页并抢到前台，直播间网页随之变成“不可见”，有的播放器会静音
     "--disable-sync",
 ]
+if sys.platform == "darwin":
+    # macOS 上浏览器会去钥匙串取加密 Cookie 的密钥，可能弹出密码框。登录信息由 logins.py 经调试协议
+    # 读出后自己保存，用不着浏览器自己的加密，所以换成假的钥匙串。
+    COMMON_FLAGS.append("--use-mock-keychain")
 HEADLESS_FLAGS = [
     "--headless=new",
     "--mute-audio",  # 不从扬声器出声；网页里照常解码，取声音不受影响
