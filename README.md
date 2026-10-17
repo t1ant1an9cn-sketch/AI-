@@ -57,6 +57,8 @@ uv run voicedetect models download               # 下载本地识别模型（�
 
 ## 使用
 
+装了安装包的，从开始菜单（Mac 是“应用程序”）打开“AI 盯播助手”。从源码运行的：
+
 ```bash
 uv run voicedetect            # 打开桌面窗口
 uv run voicedetect --browser  # 在浏览器里打开界面

@@ -277,7 +277,7 @@ export function SettingsPage() {
             ) : (
               <>
                 <Notice tone="warning">
-                  需要在讯飞开放平台开通“实时语音转写”并按时长付费。本功能按讯飞公开的接口协议实现，尚未用真实账号验证过。
+                  需要在讯飞开放平台开通“实时语音转写”，按识别时长付费。转写的声音会发送给讯飞。
                 </Notice>
                 <div className="grid-2">
                   <div className="field">
