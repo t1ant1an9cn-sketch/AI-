@@ -119,7 +119,7 @@ jobs:
           mkdir dist/dmg
           ditto "dist/AI盯播助手.app" "dist/dmg/AI盯播助手.app"
           ln -s /Applications dist/dmg/Applications  # 打开映像后直接拖进“应用程序”
-          dmg="dist/AI盯播助手-$VERSION-macOS-$arch.dmg"
+          dmg="dist/VoiceDetect-$VERSION-macos-$arch.dmg"  # 文件名不用中文：GitHub 发布时会把中文去掉
           hdiutil create -volname "AI 盯播助手" -srcfolder dist/dmg -ov -format UDZO "$dmg"
           echo "::notice title=磁盘映像::$(basename "$dmg")，$(( $(stat -f %z "$dmg") / 1048576 )) MB"
 
@@ -152,5 +152,16 @@ jobs:
           awk -v head="## $version" 'index($0, head) == 1 { keep = 1; next } /^## / { keep = 0 } keep' CHANGELOG.md > notes.md
           printf '\n' >> notes.md
           cat packaging/release-notes.md >> notes.md
-          gh release create "$GITHUB_REF_NAME" out/* --title "AI 盯播助手 $version" --notes-file notes.md
+          # 文件名是英文，再配上中文说明：发布页面上显示说明，下载下来的文件用英文名
+          assets=()
+          for file in out/*; do
+            case "$file" in
+              *windows-setup.exe) label="Windows 安装包（Windows 10/11，64 位）" ;;
+              *macos-arm64.dmg) label="Mac 安装包（Apple 芯片：M1、M2、M3……）" ;;
+              *macos-x64.dmg) label="Mac 安装包（Intel 芯片）" ;;
+              *) label="$(basename "$file")" ;;
+            esac
+            assets+=("$file#$label")
+          done
+          gh release create "$GITHUB_REF_NAME" "${assets[@]}" --title "AI 盯播助手 $version" --notes-file notes.md
           echo "::notice title=已发布::$(ls out | tr '\n' ' ')"
