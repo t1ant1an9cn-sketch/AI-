@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.3.0  # 这个仓库从 v8 起只发完整版本号，没有 v10 这样的大版本标签
 
       - uses: actions/setup-node@v7
         with:
