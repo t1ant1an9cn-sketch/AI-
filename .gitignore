@@ -1,0 +1,18 @@
+.venv/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+local-recordings/
+# 本机临时文件：探测脚本、验证输出、暂存的旧原型
+.local/
+# 前端依赖和构建产物（构建结果输出到 voicedetect/web/）
+frontend/node_modules/
+voicedetect/web/
+# 打包输出
+build/
+dist/
+# JetBrains IDE 配置（本机，可能含本机路径）
+.idea/
+# Claude Code 的个人权限设置
+.claude/settings.local.json

@@ -1,0 +1,67 @@
+[project]
+name = "voicedetect"
+dynamic = ["version"]
+description = "AI 盯播助手：实时识别主播讲解，按话术框架发现语速、节奏与内容问题"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "av>=14",
+    "fastapi>=0.115",
+    "httpx>=0.27",
+    "numpy>=1.26",
+    "platformdirs>=4",
+    "pydantic>=2.7",
+    "pypinyin>=0.51",
+    "pywebview>=5.3",
+    # 两个包版本必须一致；core 提供原生库（含 onnxruntime），uv 的通用锁不会自动带上它。
+    "sherpa-onnx==1.13.8",
+    "sherpa-onnx-core==1.13.8",
+    "soundcard>=0.4.3",
+    "sqlalchemy>=2.0.30",
+    "uvicorn>=0.30",
+    "websockets>=13",
+]
+
+[project.scripts]
+voicedetect = "voicedetect.__main__:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "voicedetect/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["voicedetect"]
+# 前端构建产物被 .gitignore 忽略，打包时仍需带上。
+artifacts = ["voicedetect/web/**"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "model: 需要已下载的 SenseVoice 模型（未下载时自动跳过）",
+]
+filterwarnings = [
+    # Starlette 建议测试客户端改用 httpx2，与被测代码无关。
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["frontend", ".local", "local-recordings"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "RUF"]
+# 中文文案和注释里的全角标点是正常写法。
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true

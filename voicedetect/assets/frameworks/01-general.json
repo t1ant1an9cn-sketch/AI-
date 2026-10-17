@@ -1,0 +1,158 @@
+{
+  "id": "tpl-general",
+  "name": "通用带货直播（模板）",
+  "description": "适合大多数单品讲解的基础框架。复制一份，再按自己的商品补充“核心卖点”等关键词。",
+  "stages": [
+    {
+      "id": "opening",
+      "name": "开场互动",
+      "points": [
+        {
+          "id": "welcome",
+          "name": "欢迎新进观众",
+          "keywords": ["欢迎", "新来的", "刚进来"],
+          "description": "欢迎刚进直播间的观众",
+          "required": true,
+          "min_mentions": 1
+        },
+        {
+          "id": "follow",
+          "name": "引导关注",
+          "keywords": ["关注", "点关注", "加关注"],
+          "description": "提醒观众关注直播间",
+          "required": true,
+          "min_mentions": 1
+        },
+        {
+          "id": "interact",
+          "name": "引导互动",
+          "keywords": ["扣1", "扣个1", "公屏", "评论区", "点赞"],
+          "description": "引导观众评论、扣数字或点赞",
+          "required": false,
+          "min_mentions": 1
+        }
+      ]
+    },
+    {
+      "id": "product",
+      "name": "产品介绍",
+      "points": [
+        {
+          "id": "selling-point",
+          "name": "核心卖点",
+          "keywords": [],
+          "description": "讲清楚产品最重要的卖点。请按商品填写关键词，否则只能由大模型判断。",
+          "required": true,
+          "min_mentions": 1
+        },
+        {
+          "id": "spec",
+          "name": "规格参数",
+          "keywords": ["规格", "尺寸", "容量", "重量", "颜色", "款式"],
+          "description": "说明规格、尺寸或可选款式",
+          "required": false,
+          "min_mentions": 1
+        },
+        {
+          "id": "scenario",
+          "name": "使用场景",
+          "keywords": ["适合", "场景", "上班", "出门", "在家", "送礼"],
+          "description": "描述适合什么人、什么场合使用",
+          "required": false,
+          "min_mentions": 1
+        }
+      ]
+    },
+    {
+      "id": "price",
+      "name": "价格优惠",
+      "points": [
+        {
+          "id": "quote",
+          "name": "报价",
+          "keywords": ["到手价", "价格", "原价", "多少钱", "只要"],
+          "description": "明确告诉观众到手价格",
+          "required": true,
+          "min_mentions": 1
+        },
+        {
+          "id": "benefit",
+          "name": "优惠福利",
+          "keywords": ["优惠券", "领券", "满减", "赠品", "福利", "立减", "送一个", "免费送"],
+          "description": "说明当前的优惠、赠品或福利",
+          "required": true,
+          "min_mentions": 1
+        }
+      ]
+    },
+    {
+      "id": "conversion",
+      "name": "促单转化",
+      "points": [
+        {
+          "id": "cta",
+          "name": "下单引导",
+          "keywords": ["下单", "小黄车", "购物车", "号链接", "拍下", "去拍", "抢购"],
+          "description": "明确告诉观众怎么买、去哪里下单",
+          "required": true,
+          "min_mentions": 2
+        },
+        {
+          "id": "urgency",
+          "name": "制造紧迫感",
+          "keywords": ["库存", "限时", "限量", "抢完", "手慢无", "倒计时", "最后几单"],
+          "description": "说明库存或时间有限，促使观众尽快下单",
+          "required": false,
+          "min_mentions": 1
+        }
+      ]
+    },
+    {
+      "id": "service",
+      "name": "售后保障",
+      "points": [
+        {
+          "id": "after-sales",
+          "name": "售后承诺",
+          "keywords": ["七天无理由", "7天无理由", "退换", "包邮", "运费险", "质保", "保修"],
+          "description": "说明退换货、运费险或质保等售后保障",
+          "required": true,
+          "min_mentions": 1
+        }
+      ]
+    }
+  ],
+  "forbidden": [
+    {
+      "id": "absolute",
+      "name": "绝对化用语",
+      "keywords": ["最好", "最佳", "最便宜", "最低价", "全网最低", "史上最低", "全网第一", "销量第一", "排名第一", "第一品牌", "顶级", "国家级", "世界级", "独一无二", "绝无仅有", "百分之百", "万能"],
+      "severity": "high",
+      "suggestion": "广告法禁止绝对化用语，改用“很实惠”“口碑很好”等可以证明的描述"
+    },
+    {
+      "id": "false-claim",
+      "name": "虚假或夸大功效",
+      "keywords": ["包治", "根治", "治愈", "药到病除", "无副作用", "零风险", "立刻见效", "一次见效", "永不"],
+      "severity": "high",
+      "suggestion": "不承诺医疗功效或绝对效果，按产品说明如实介绍"
+    },
+    {
+      "id": "off-platform",
+      "name": "站外导流与私下交易",
+      "keywords": ["加微信", "加我微信", "加v", "私下交易", "线下交易", "私信转账"],
+      "severity": "high",
+      "suggestion": "平台禁止引导观众到站外交易"
+    }
+  ],
+  "fillers": ["嗯", "呃", "额", "那个那个", "然后然后", "就是说"],
+  "pace": {
+    "min_rate": 150,
+    "max_rate": 330,
+    "max_pause_seconds": 8,
+    "min_speech_ratio": 0.5,
+    "max_fillers_per_minute": 8
+  },
+  "check_order": false,
+  "llm_instructions": ""
+}

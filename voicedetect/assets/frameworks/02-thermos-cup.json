@@ -1,0 +1,158 @@
+{
+  "id": "tpl-thermos-cup",
+  "name": "保温杯讲解（示例）",
+  "description": "一款 316 不锈钢保温杯的完整讲解框架，可直接配合“演示音频”体验。",
+  "stages": [
+    {
+      "id": "opening",
+      "name": "开场互动",
+      "points": [
+        {
+          "id": "welcome",
+          "name": "欢迎新进观众",
+          "keywords": ["欢迎", "新来的", "刚进来"],
+          "description": "欢迎刚进直播间的观众",
+          "required": true,
+          "min_mentions": 1
+        },
+        {
+          "id": "follow",
+          "name": "引导关注",
+          "keywords": ["关注", "点关注"],
+          "description": "提醒观众关注直播间",
+          "required": true,
+          "min_mentions": 1
+        }
+      ]
+    },
+    {
+      "id": "product",
+      "name": "产品介绍",
+      "points": [
+        {
+          "id": "material",
+          "name": "材质",
+          "keywords": ["316不锈钢", "食品级", "不锈钢内胆"],
+          "description": "说明内胆是 316 食品级不锈钢，安全不生锈",
+          "required": true,
+          "min_mentions": 1
+        },
+        {
+          "id": "insulation",
+          "name": "保温效果",
+          "keywords": ["保温效果", "保温时间", "12个小时", "十二个小时", "还是烫的"],
+          "description": "说明保温时长，例如热水 12 个小时还是烫的",
+          "required": true,
+          "min_mentions": 1
+        },
+        {
+          "id": "capacity",
+          "name": "容量",
+          "keywords": ["500毫升", "500ml", "容量"],
+          "description": "说明容量是 500 毫升",
+          "required": true,
+          "min_mentions": 1
+        },
+        {
+          "id": "leakproof",
+          "name": "密封防漏",
+          "keywords": ["不漏水", "防漏", "密封", "倒过来"],
+          "description": "演示或说明杯子密封好、倒过来也不漏",
+          "required": false,
+          "min_mentions": 1
+        }
+      ]
+    },
+    {
+      "id": "price",
+      "name": "价格优惠",
+      "points": [
+        {
+          "id": "quote",
+          "name": "到手价",
+          "keywords": ["到手价", "99元", "九十九", "多少钱"],
+          "description": "明确说出到手价 99 元",
+          "required": true,
+          "min_mentions": 1
+        },
+        {
+          "id": "gift",
+          "name": "赠品",
+          "keywords": ["赠品", "杯套", "送一个", "免费送"],
+          "description": "说明下单送杯套",
+          "required": true,
+          "min_mentions": 1
+        }
+      ]
+    },
+    {
+      "id": "conversion",
+      "name": "促单转化",
+      "points": [
+        {
+          "id": "cta",
+          "name": "下单引导",
+          "keywords": ["下单", "小黄车", "一号链接", "1号链接", "拍下"],
+          "description": "告诉观众点小黄车一号链接下单",
+          "required": true,
+          "min_mentions": 2
+        },
+        {
+          "id": "urgency",
+          "name": "制造紧迫感",
+          "keywords": ["库存", "限量", "抢完", "手慢无", "最后几单"],
+          "description": "说明库存有限，促使观众尽快下单",
+          "required": false,
+          "min_mentions": 1
+        }
+      ]
+    },
+    {
+      "id": "service",
+      "name": "售后保障",
+      "points": [
+        {
+          "id": "after-sales",
+          "name": "售后承诺",
+          "keywords": ["七天无理由", "7天无理由", "包邮", "运费险", "退换"],
+          "description": "说明七天无理由退换、包邮和运费险",
+          "required": true,
+          "min_mentions": 1
+        }
+      ]
+    }
+  ],
+  "forbidden": [
+    {
+      "id": "absolute",
+      "name": "绝对化用语",
+      "keywords": ["最好", "最佳", "最便宜", "最低价", "全网最低", "史上最低", "全网第一", "销量第一", "排名第一", "顶级", "国家级", "独一无二", "百分之百", "万能"],
+      "severity": "high",
+      "suggestion": "广告法禁止绝对化用语，改用“很实惠”“口碑很好”等可以证明的描述"
+    },
+    {
+      "id": "false-claim",
+      "name": "夸大功效",
+      "keywords": ["永不生锈", "永远不坏", "零风险", "一辈子"],
+      "severity": "medium",
+      "suggestion": "不做无法兑现的绝对承诺，按质保条款介绍"
+    },
+    {
+      "id": "off-platform",
+      "name": "站外导流与私下交易",
+      "keywords": ["加微信", "加我微信", "加v", "私下交易"],
+      "severity": "high",
+      "suggestion": "平台禁止引导观众到站外交易"
+    }
+  ],
+  "fillers": ["嗯", "呃", "额", "那个那个", "然后然后", "就是说"],
+  "pace": {
+    "min_rate": 150,
+    "max_rate": 330,
+    "max_pause_seconds": 8,
+    "min_speech_ratio": 0.5,
+    "max_fillers_per_minute": 8
+  },
+  "check_order": false,
+  "llm_instructions": "价格必须是 99 元，赠品是杯套；如果主播说错价格或赠品，请指出。"
+}
