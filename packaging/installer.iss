@@ -33,7 +33,9 @@ WizardStyle=modern
 CloseApplications=yes
 
 [Languages]
-Name: "chs"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+; Inno Setup 6.7.1（GitHub 的 Windows 机器上装的版本）还没有自带简体中文，这是同一版本源码里
+; Files/Languages/Unofficial/ChineseSimplified.isl 的原样副本
+Name: "chs"; MessagesFile: "ChineseSimplified.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "在桌面上创建快捷方式"; GroupDescription: "快捷方式："

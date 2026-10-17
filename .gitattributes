@@ -1,0 +1,2 @@
+# Windows 上检出时 Git 会把换行换成 CRLF；bash 脚本带 CRLF 会运行出错，固定用 LF
+*.sh text eol=lf

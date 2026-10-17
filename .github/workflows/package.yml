@@ -70,12 +70,25 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:VERSION" packaging\installer.iss
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # 出错时把原因写成标注：不登录看不到运行日志
+          function Fail($title, $log) {
+            $tail = (Get-Content $log -Tail 20 -ErrorAction SilentlyContinue) -join "%0A"
+            Write-Output "::error title=$title::$tail"
+            exit 1
+          }
+          $compileLog = Join-Path $env:RUNNER_TEMP "iscc.log"
+          iscc "/DAppVersion=$env:VERSION" packaging\installer.iss *> $compileLog  # 这台机器上 iscc 在 PATH 里
+          if ($LASTEXITCODE -ne 0) { Fail "编译安装程序失败（退出码 $LASTEXITCODE）" $compileLog }
           $installer = Get-ChildItem dist -Filter *.exe | Select-Object -First 1
+          Write-Output "::notice title=安装程序::$($installer.Name)，$([math]::Round($installer.Length / 1MB)) MB"
           $target = Join-Path $env:RUNNER_TEMP "app"
-          Start-Process -Wait -FilePath $installer.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=$target"
-          "APP_EXE=$(Join-Path $target 'VoiceDetect.exe')" >> $env:GITHUB_ENV
+          $setupLog = Join-Path $env:RUNNER_TEMP "setup.log"
+          $arguments = "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=`"$target`"", "/LOG=`"$setupLog`""
+          $setup = Start-Process -Wait -PassThru -FilePath $installer.FullName -ArgumentList $arguments
+          if ($setup.ExitCode -ne 0) { Fail "安装失败（退出码 $($setup.ExitCode)）" $setupLog }
+          $exe = Join-Path $target "VoiceDetect.exe"
+          if (-not (Test-Path $exe)) { Fail "安装后找不到 VoiceDetect.exe" $setupLog }
+          "APP_EXE=$exe" >> $env:GITHUB_ENV
 
       - name: 找到程序（macOS）
         if: runner.os == 'macOS'
@@ -100,7 +113,9 @@ jobs:
           mkdir dist/dmg
           ditto "dist/AI盯播助手.app" "dist/dmg/AI盯播助手.app"
           ln -s /Applications dist/dmg/Applications  # 打开映像后直接拖进“应用程序”
-          hdiutil create -volname "AI 盯播助手" -srcfolder dist/dmg -ov -format UDZO "dist/AI盯播助手-$VERSION-macOS-$arch.dmg"
+          dmg="dist/AI盯播助手-$VERSION-macOS-$arch.dmg"
+          hdiutil create -volname "AI 盯播助手" -srcfolder dist/dmg -ov -format UDZO "$dmg"
+          echo "::notice title=磁盘映像::$(basename "$dmg")，$(( $(stat -f %z "$dmg") / 1048576 )) MB"
 
       - uses: actions/upload-artifact@v7
         with:
