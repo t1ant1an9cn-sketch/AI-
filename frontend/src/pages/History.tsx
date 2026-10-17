@@ -1,13 +1,16 @@
-import { ArrowLeft, FileDown, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowLeft, Copy, FileDown, RefreshCw, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
-import { api, saveText } from "../api";
+import { api, audioUrl, saveText } from "../api";
 import { RateChart } from "../components/RateChart";
-import { AlertList, CoverageList, FindingList, MetricTiles } from "../components/Report";
+import { AlertList, CoverageList, FindingList, MetricTiles, TimeLink } from "../components/Report";
 import { Empty, Notice, Status, type Tone, useConfirm } from "../components/ui";
 import { useApp } from "../context";
-import { clock, dateTime, duration, percent, span } from "../format";
+import { clock, dateTime, duration, megabytes, percent, span } from "../format";
+import { setPrefill } from "../prefill";
 import type { SessionDetail, SessionSummary } from "../types";
+
+const SEEK_LEAD = 0.5; // 跳到录音时往前留半秒，听得到这句话的开头
 
 const PAGE = 50;
 
@@ -103,10 +106,12 @@ function SessionList() {
 }
 
 function SessionView({ id }: { id: string }) {
-  const { navigate, toast } = useApp();
+  const { navigate, toast, live } = useApp();
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [error, setError] = useState("");
   const { confirm, dialog } = useConfirm();
+  const player = useRef<HTMLAudioElement>(null);
+  const monitoring = live.session !== null && !["stopped", "failed"].includes(live.session.state);
 
   useEffect(() => {
     api
@@ -127,13 +132,43 @@ function SessionView({ id }: { id: string }) {
   };
 
   const remove = async () => {
-    if (!detail || !(await confirm("删除记录", `确定删除“${detail.title}”的全部记录吗？删除后无法恢复。`, "删除"))) return;
+    const what = detail?.recording ? "全部记录和录音" : "全部记录";
+    if (!detail || !(await confirm("删除记录", `确定删除“${detail.title}”的${what}吗？删除后无法恢复。`, "删除"))) return;
+    const audio = player.current;
+    if (audio) {
+      // 先断开播放器，Windows 上文件正被读取时删不掉
+      audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
+    }
     try {
       await api.deleteSession(id);
       navigate("/history");
     } catch (reason) {
       setError((reason as Error).message);
     }
+  };
+
+  const copyPath = async () => {
+    if (!detail?.recording) return;
+    try {
+      await navigator.clipboard.writeText(detail.recording.path);
+      toast({ severity: "info", title: "已复制录音路径" });
+    } catch {
+      toast({ severity: "info", title: "没能复制，路径如下", detail: detail.recording.path });
+    }
+  };
+
+  const reanalyze = () => {
+    if (!detail?.recording) return;
+    setPrefill({
+      frameworkId: detail.framework_id,
+      title: `${detail.title}（重新分析）`.slice(0, 100),
+      file: { path: detail.recording.path, name: `${detail.title} 的录音` },
+      windowSeconds: detail.window_seconds,
+      intervalSeconds: detail.interval_seconds,
+    });
+    navigate("/monitor/new");
   };
 
   if (!detail) {
@@ -147,6 +182,15 @@ function SessionView({ id }: { id: string }) {
   const summary = detail.summary;
   const pace = detail.framework.pace;
   const minuteRates = (summary?.metrics.minute_rates ?? []).map((m) => ({ minute: Math.floor(m.start / 60), rate: m.rate }));
+  // 有录音时，页面上的时间都能点击，跳到录音里的同一时刻（录音和盯播用同一条时间轴）
+  const seek = detail.recording
+    ? (seconds: number) => {
+        const audio = player.current;
+        if (!audio) return;
+        audio.currentTime = Math.max(0, seconds - SEEK_LEAD);
+        void audio.play().catch(() => undefined);
+      }
+    : undefined;
 
   return (
     <div className="page">
@@ -184,6 +228,35 @@ function SessionView({ id }: { id: string }) {
           <Notice tone="warning">这一场在程序意外退出时中断，下面只有中断前保存的内容，没有全场总结。</Notice>
         )}
 
+        {detail.recording && (
+          <section className="card recording-card" aria-label="本场录音">
+            <div className="card-body stack tight">
+              <div className="row">
+                <h3 className="nowrap">本场录音</h3>
+                <audio ref={player} className="grow" controls preload="metadata" src={audioUrl(id)} />
+                <button className="btn small" type="button" onClick={copyPath} title={detail.recording.path}>
+                  <Copy size={14} />
+                  复制路径
+                </button>
+                <button
+                  className="btn small primary"
+                  type="button"
+                  onClick={reanalyze}
+                  disabled={monitoring}
+                  title={monitoring ? "正在盯播，结束后才能重新分析" : "改了话术框架或换了识别引擎后，用这段录音再分析一次"}
+                >
+                  <RefreshCw size={14} />
+                  用这段录音重新分析
+                </button>
+              </div>
+              <span className="muted small">
+                {duration(detail.recording.seconds)} · {megabytes(detail.recording.bytes)} ·
+                点转写、提醒前面的时间，可以跳到录音里对应的位置
+              </span>
+            </div>
+          </section>
+        )}
+
         {summary && (
           <section className="card">
             <div className="card-head">
@@ -197,11 +270,11 @@ function SessionView({ id }: { id: string }) {
               <div className="detail-grid">
                 <div>
                   <h4 style={{ marginBottom: 6 }}>需要改进</h4>
-                  <FindingList findings={summary.findings} empty="全场没有发现问题" />
+                  <FindingList findings={summary.findings} empty="全场没有发现问题" onSeek={seek} />
                 </div>
                 <div>
                   <h4 style={{ marginBottom: 6 }}>话术要点覆盖</h4>
-                  <CoverageList coverage={summary.coverage} judged />
+                  <CoverageList coverage={summary.coverage} judged onSeek={seek} />
                 </div>
               </div>
               <RateChart data={minuteRates} band={{ min: pace.min_rate, max: pace.max_rate }} />
@@ -219,7 +292,9 @@ function SessionView({ id }: { id: string }) {
               {detail.segments.length === 0 && <Empty>没有识别到讲话</Empty>}
               {detail.segments.map((segment) => (
                 <div className="line" key={segment.id}>
-                  <time>{clock(segment.start)}</time>
+                  <time>
+                    <TimeLink seconds={segment.start} onSeek={seek} />
+                  </time>
                   <div className="text">{segment.text}</div>
                 </div>
               ))}
@@ -232,7 +307,7 @@ function SessionView({ id }: { id: string }) {
                 <span className="hint">{detail.alerts.length} 条</span>
               </div>
               <div className="card-body" style={{ maxHeight: 420, overflow: "auto", paddingTop: 4 }}>
-                <AlertList alerts={detail.alerts} />
+                <AlertList alerts={detail.alerts} onSeek={seek} empty="这一场没有提醒" />
               </div>
             </section>
             <section className="card">

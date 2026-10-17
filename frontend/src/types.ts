@@ -164,6 +164,7 @@ export interface Snapshot {
   session_id: string;
   title: string;
   paced: boolean; // 音频按真实时间到达（实时来源或按实际速度播放）；快速分析文件时为 false
+  recording: string | null; // 本场录音文件路径；不录时为 null
   state: SessionState;
   error: string;
   started_at: string;
@@ -245,7 +246,7 @@ export interface Settings {
     review_every: number;
     timeout_seconds: number;
   };
-  monitor: { window_seconds: number; interval_seconds: number };
+  monitor: { window_seconds: number; interval_seconds: number; save_audio: boolean };
   notify: { sound: boolean; min_severity: Severity };
 }
 
@@ -293,12 +294,19 @@ export interface SessionSummary {
   finding_count: number;
 }
 
+export interface Recording {
+  path: string;
+  bytes: number;
+  seconds: number;
+}
+
 export interface SessionDetail extends SessionSummary {
   framework: Framework;
   summary: WindowReport | null;
   segments: Segment[];
   reports: WindowReport[];
   alerts: Alert[];
+  recording: Recording | null;
 }
 
 export type SourceSpec =

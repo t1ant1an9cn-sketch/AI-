@@ -371,6 +371,25 @@ export function SettingsPage() {
 
         <section className="card">
           <div className="card-head">
+            <h3>录音</h3>
+          </div>
+          <div className="card-body stack">
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={draft.monitor.save_audio}
+                onChange={(event) => set("monitor", { save_audio: event.target.checked })}
+              />
+              实时盯播时保存录音（系统声音、麦克风、直播流）
+            </label>
+            <span className="help secondary small">
+              录音只存在本机数据目录的 recordings 文件夹，约每小时 115 MB，删除场次时一起删除。复盘时可以边听边核对转写和提醒，也可以用它换识别引擎或改了话术框架后重新分析。录音会录下电脑上播放的所有声音，请只在需要时开启。
+            </span>
+          </div>
+        </section>
+
+        <section className="card">
+          <div className="card-head">
             <h3>提醒方式</h3>
           </div>
           <div className="card-body stack">

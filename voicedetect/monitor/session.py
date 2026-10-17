@@ -1,12 +1,12 @@
 """一场直播的实时盯播会话：采集 → 识别 → 即时检查 → 定时窗口分析 → 提醒。
 
 两个后台线程：
-- 采集线程只读音频，放进有界队列。实时来源（声卡、直播流）在识别跟不上时丢弃最旧的音频，
-  并补上等长静音保持时间轴不变，同时提醒用户；文件来源则等待识别，不丢数据。
+- 采集线程只读音频，放进有界队列；开了录音时顺便写入录音文件。实时来源（声卡、直播流）在识别
+  跟不上时丢弃最旧的音频，并补上等长静音保持时间轴不变，同时提醒用户；文件来源则等待识别，不丢数据。
 - 处理线程加载识别引擎、逐块识别，并按“音频时间”调度窗口分析：每 interval 秒分析过去 window 秒。
   违规表达和冷场在每句话、每块音频上即时检查，不等窗口。
 
-大模型审核在单独的线程里进行，上一轮没完成时跳过本轮，不阻塞识别。
+大模型审核在单独的线程里进行：实时来源上一轮没完成时跳过本轮，分析文件时排队逐个审核。
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 import logging
+from pathlib import Path
 import queue
 import threading
 import time
@@ -29,6 +30,7 @@ from ..analysis.text import comparable
 from ..analysis.window import FrameworkAnalyzer, SegmentFacts
 from ..asr.base import SAMPLE_RATE, AsrEvent, Recognizer
 from ..audio.base import AudioSource, level_db
+from ..audio.recording import WavRecorder
 from ..frameworks import Framework
 
 log = logging.getLogger(__name__)
@@ -78,8 +80,10 @@ class MonitorSession:
         store: SessionStore | None = None,
         reviewer: Reviewer | None = None,
         engine: str = "",
+        record_to: Path | None = None,
     ) -> None:
         self.session_id = session_id
+        self.recording = record_to  # 录音文件；None 表示这一场不录
         self.title = title
         self.framework = framework
         self.source = source
@@ -123,6 +127,7 @@ class MonitorSession:
         self._throttle: dict[str, float] = {}
         self._level_peak = -120.0
         self._store_failed = False
+        self._recorder: WavRecorder | None = None
 
         self._segments: deque[dict[str, Any]] = deque(maxlen=400)
         self._alerts: deque[dict[str, Any]] = deque(maxlen=200)
@@ -181,11 +186,13 @@ class MonitorSession:
             if self._stop.is_set():
                 return
             self.source.open()
+            self._open_recording()
             while not self._stop.is_set():
                 block = self.source.read()
                 if block is None:
                     break
                 if block.size:
+                    self._record(block)  # 先录再入队：被丢弃的音频也留在录音里
                     self._enqueue(block)
         except Exception as exc:  # 设备被拔出、文件损坏、网络中断等
             log.exception("audio capture failed")
@@ -195,7 +202,43 @@ class MonitorSession:
                 self.source.close()
             except Exception:
                 log.exception("closing audio source failed")
+            self._close_recording()
             self._enqueue_eof()
+
+    def _open_recording(self) -> None:
+        if self.recording is None:
+            return
+        try:
+            self._recorder = WavRecorder(self.recording)
+        except OSError as exc:
+            self._recording_failed(exc)
+
+    def _record(self, block: np.ndarray) -> None:
+        if self._recorder is None:
+            return
+        try:
+            self._recorder.write(block)
+        except OSError as exc:  # 磁盘满、文件被占用等；只影响录音，盯播照常进行
+            self._close_recording()
+            self._recording_failed(exc)
+
+    def _close_recording(self) -> None:
+        recorder, self._recorder = self._recorder, None
+        if recorder is not None:
+            try:
+                recorder.close()
+            except OSError:
+                log.exception("closing recording failed")
+
+    def _recording_failed(self, exc: OSError) -> None:
+        log.error("recording failed: %s", exc)
+        self._system_alert(
+            "recording_failed",
+            "medium",
+            "录音保存失败",
+            f"这一场的录音没有保存完整（{exc}），盯播照常进行。",
+            "检查磁盘空间，或在设置里关闭录音。",
+        )
 
     def _enqueue(self, block: np.ndarray) -> None:
         if not self._live:
@@ -632,6 +675,7 @@ class MonitorSession:
                 "session_id": self.session_id,
                 "title": self.title,
                 "paced": self.paced,
+                "recording": str(self.recording) if self.recording else None,
                 "state": self.state,
                 "error": self.error,
                 "started_at": self.started_at,

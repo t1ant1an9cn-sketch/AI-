@@ -123,6 +123,8 @@ def _analyze(args: argparse.Namespace) -> int:
     detail = services.storage.get_session(session.session_id)
     print()
     print(f"共识别 {len(detail['segments'])} 句，提醒 {len(detail['alerts'])} 条。历史记录里可以查看这一场。")
+    if session.recording is not None and session.recording.is_file():
+        print(f"录音：{session.recording}")
     if args.report:
         args.report.write_text(session_markdown(detail), encoding="utf-8")
         print(f"复盘报告：{args.report}")

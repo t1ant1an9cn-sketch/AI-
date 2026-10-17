@@ -30,6 +30,11 @@ export function eventsUrl(): string {
   return `${scheme}://${window.location.host}/api/events?token=${encodeURIComponent(token)}`;
 }
 
+/** 录音地址：<audio> 元素没法加请求头，令牌放在网址里。 */
+export function audioUrl(sessionId: string): string {
+  return `/api/sessions/${encodeURIComponent(sessionId)}/audio?token=${encodeURIComponent(token)}`;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,

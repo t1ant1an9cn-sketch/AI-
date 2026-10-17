@@ -85,7 +85,35 @@ export function MetricTiles({
   );
 }
 
-export function FindingList({ findings, empty = "这一段没有发现问题" }: { findings: Finding[]; empty?: string }) {
+type Seek = (seconds: number) => void;
+
+/** 时间标签：有录音时可以点击，跳到录音里的这个位置。 */
+export function TimeLink({ seconds, onSeek }: { seconds: number; onSeek?: Seek }) {
+  if (!onSeek) return <span className="muted tabular">{clock(seconds)}</span>;
+  return (
+    <button
+      className="time-link tabular"
+      type="button"
+      title="跳到录音的这个位置"
+      onClick={(event) => {
+        event.stopPropagation();
+        onSeek(seconds);
+      }}
+    >
+      {clock(seconds)}
+    </button>
+  );
+}
+
+export function FindingList({
+  findings,
+  empty = "这一段没有发现问题",
+  onSeek,
+}: {
+  findings: Finding[];
+  empty?: string;
+  onSeek?: Seek;
+}) {
   if (!findings.length) return <Status tone="good">{empty}</Status>;
   return (
     <div>
@@ -100,7 +128,7 @@ export function FindingList({ findings, empty = "这一段没有发现问题" }:
             {finding.suggestion && <div className="small secondary">建议：{finding.suggestion}</div>}
             {finding.evidence.slice(0, 2).map((evidence, index) => (
               <div className="quote-line" key={index}>
-                <span className="muted tabular">{clock(evidence.start)}</span> {evidence.sentence}
+                <TimeLink seconds={evidence.start} onSeek={onSeek} /> {evidence.sentence}
               </div>
             ))}
           </div>
@@ -111,7 +139,15 @@ export function FindingList({ findings, empty = "这一段没有发现问题" }:
 }
 
 /** 要点覆盖：按环节分组，点开看命中的原话和时间。 */
-export function CoverageList({ coverage, judged }: { coverage: PointCoverage[]; judged: boolean }) {
+export function CoverageList({
+  coverage,
+  judged,
+  onSeek,
+}: {
+  coverage: PointCoverage[];
+  judged: boolean;
+  onSeek?: Seek;
+}) {
   const [open, setOpen] = useState<string | null>(null);
   const stages = new Map<string, { name: string; items: PointCoverage[] }>();
   for (const item of coverage) {
@@ -163,7 +199,7 @@ export function CoverageList({ coverage, judged }: { coverage: PointCoverage[]; 
                 {expanded &&
                   item.evidence.map((evidence, index) => (
                     <div className="quote-line" key={index} style={{ marginLeft: 26 }}>
-                      <span className="muted tabular">{clock(evidence.start)}</span> {evidence.sentence}
+                      <TimeLink seconds={evidence.start} onSeek={onSeek} /> {evidence.sentence}
                       {!evidence.exact && <span className="muted small">（同音匹配：{evidence.text}）</span>}
                     </div>
                   ))}
@@ -226,9 +262,21 @@ const SOURCE_LABEL: Record<Alert["source"], string> = {
 };
 
 /** 提醒列表，最新的在最上面。 */
-export function AlertList({ alerts, limit, highlightNew }: { alerts: Alert[]; limit?: number; highlightNew?: boolean }) {
+export function AlertList({
+  alerts,
+  limit,
+  highlightNew,
+  onSeek,
+  empty = "还没有提醒。发现问题时会在这里出现，并发出提示音。",
+}: {
+  alerts: Alert[];
+  limit?: number;
+  highlightNew?: boolean;
+  onSeek?: Seek;
+  empty?: string;
+}) {
   const items = [...alerts].reverse().slice(0, limit ?? alerts.length);
-  if (!items.length) return <div className="empty">还没有提醒。发现问题时会在这里出现，并发出提示音。</div>;
+  if (!items.length) return <div className="empty">{empty}</div>;
   return (
     <div className="alerts" aria-live="polite">
       {items.map((alert, index) => (
@@ -241,13 +289,13 @@ export function AlertList({ alerts, limit, highlightNew }: { alerts: Alert[]; li
             <div className="head">
               <span className="title">{alert.title}</span>
               <span className="muted small tabular nowrap">
-                {SOURCE_LABEL[alert.source]} · {clock(alert.time)}
+                {SOURCE_LABEL[alert.source]} · <TimeLink seconds={alert.time} onSeek={onSeek} />
               </span>
             </div>
             <div className="detail">{alert.detail}</div>
             {alert.evidence[0] && (
               <div className="quote-line">
-                <span className="muted tabular">{clock(alert.evidence[0].start)}</span> {alert.evidence[0].sentence}
+                <TimeLink seconds={alert.evidence[0].start} onSeek={onSeek} /> {alert.evidence[0].sentence}
               </div>
             )}
             {alert.suggestion && <div className="suggestion">建议：{alert.suggestion}</div>}

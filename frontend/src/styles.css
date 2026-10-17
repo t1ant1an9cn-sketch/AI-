@@ -912,6 +912,33 @@ p {
   font-variant-numeric: tabular-nums;
 }
 
+/* 可点击的时间：跳到录音里的这个位置 */
+.time-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.time-link:hover {
+  text-decoration: underline;
+}
+
+/* 复盘页的录音播放条：滚动时固定在顶部，方便边听边看下面的转写和提醒 */
+.recording-card {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  box-shadow: var(--shadow);
+}
+
+.recording-card audio {
+  min-width: 240px;
+  height: 36px;
+}
+
 .line.partial .text {
   color: var(--ink-2);
 }

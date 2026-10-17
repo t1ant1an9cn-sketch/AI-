@@ -1,5 +1,7 @@
 import time
+import wave
 
+import numpy as np
 import pytest
 
 from tests.fakes import BlockSource, Events, MemoryStore, ScriptedRecognizer
@@ -25,7 +27,9 @@ FRAMEWORK = Framework(
 )
 
 
-def run(lines=(), seconds=10.0, *, source=None, recognizer=None, options=None, reviewer=None, factory=None):
+def run(
+    lines=(), seconds=10.0, *, source=None, recognizer=None, options=None, reviewer=None, factory=None, record_to=None
+):
     events, store = Events(), MemoryStore()
     session = MonitorSession(
         session_id="s1",
@@ -37,6 +41,7 @@ def run(lines=(), seconds=10.0, *, source=None, recognizer=None, options=None, r
         options=options or SessionOptions(window_seconds=120, interval_seconds=60),
         store=store,
         reviewer=reviewer,
+        record_to=record_to,
     )
     session.start()
     assert session.wait(20), "会话没有按时结束"
@@ -102,6 +107,35 @@ def test_live_source_drops_backlog_but_keeps_the_timeline():
     assert session.audio_time == pytest.approx(6.0)
     assert session.health()["dropped_seconds"] > 0
     assert any(a.kind == "dropped_audio" and a.source == "system" for a in store.alerts)
+
+
+def test_recording_keeps_audio_dropped_by_recognition_on_the_same_timeline(tmp_path):
+    source = BlockSource(6, live=True, pace=0.001)
+    options = SessionOptions(window_seconds=60, interval_seconds=30, max_backlog_seconds=1)
+    session, _, store = run(
+        source=source,
+        recognizer=ScriptedRecognizer([], delay=0.02),
+        options=options,
+        record_to=tmp_path / "rec" / "s1.wav",
+    )
+    assert session.health()["dropped_seconds"] > 0  # 识别跟不上，确实丢过音频
+    with wave.open(str(tmp_path / "rec" / "s1.wav")) as audio:
+        assert (audio.getframerate(), audio.getnchannels(), audio.getsampwidth()) == (16000, 1, 2)
+        frames = audio.getnframes()
+        first = np.frombuffer(audio.readframes(1600), dtype="<i2")
+    # 录音里是设备送来的全部声音，包括被丢弃的部分，所以长度和盯播时间一致
+    assert frames == source.sent * 1600 == session.audio_time * 16000
+    assert set(first.tolist()) == {round(0.01 * 32767)}
+    assert session.snapshot()["recording"] == str(tmp_path / "rec" / "s1.wav")
+    assert not any(a.kind == "recording_failed" for a in store.alerts)
+
+
+def test_recording_failure_does_not_stop_monitoring(tmp_path):
+    # 录音位置是一个文件夹，打不开；盯播照常进行，只提醒一次
+    session, _, store = run([(1, 3, "你好")], 5, record_to=tmp_path)
+    assert session.state == "stopped" and session.audio_time == 5
+    assert [s.text for s in store.segments] == ["你好"]
+    assert [a.title for a in store.alerts if a.kind == "recording_failed"] == ["录音保存失败"]
 
 
 def test_no_signal_is_reported_for_live_sources():

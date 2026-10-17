@@ -124,7 +124,7 @@ class XfyunRecognizer:
         if self._socket is None:
             self._open()
         self._check()
-        self._buffer += (np.clip(samples, -1.0, 1.0) * 32767).astype("<i2").tobytes()
+        self._buffer += np.rint(np.clip(samples, -1.0, 1.0) * 32767).astype("<i2").tobytes()
         while len(self._buffer) >= FRAME_BYTES:
             self._send(bytes(self._buffer[:FRAME_BYTES]))
             del self._buffer[:FRAME_BYTES]

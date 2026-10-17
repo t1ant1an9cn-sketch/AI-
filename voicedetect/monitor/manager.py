@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from ..asr.base import Recognizer, RecognizerError
 from ..audio.base import AudioSource
-from ..config import AppSettings, models_dir
+from ..config import AppSettings, models_dir, recording_path
 from ..frameworks import Framework
 from .bus import EventBus
 from .session import MonitorSession, Reviewer, SessionOptions, SessionStore
@@ -219,6 +219,8 @@ class SessionManager:
                 store=self._storage,
                 reviewer=reviewer,
                 engine=engine_label(settings),
+                # 只录实时来源；文件本来就在磁盘上，用它重新分析时不再录一份。
+                record_to=recording_path(session_id) if settings.monitor.save_audio and source.live else None,
             )
             self.current = session
             session.start()

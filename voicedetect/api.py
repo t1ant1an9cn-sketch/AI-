@@ -1,13 +1,15 @@
 """本地接口：界面通过 HTTP 读写数据，通过 WebSocket（/api/events）接收实时事件。
 
-只监听 127.0.0.1。每个请求都要带启动时生成的令牌（请求头 X-Token；WebSocket 用 ?token=），
-并检查 Host 头，防止网页借 DNS 重绑定访问本地接口。界面使用 hash 路由，静态文件不需要回退规则。
+只监听 127.0.0.1。每个请求都要带启动时生成的令牌（请求头 X-Token；WebSocket 和录音地址用 ?token=，
+因为浏览器的 WebSocket 和 <audio> 元素都没法加请求头），并检查 Host 头，防止网页借 DNS 重绑定
+访问本地接口。界面使用 hash 路由，静态文件不需要回退规则。
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 import re
 import secrets
@@ -19,7 +21,7 @@ import uuid
 import anyio
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -28,13 +30,17 @@ from .analysis.llm import LlmError, LlmReviewer
 from .app import Services
 from .asr.base import RecognizerError
 from .asr.models import ModelError
-from .config import SECRET_MASK, AppSettings, LlmSettings, data_dir, uploads_dir
+from .audio.recording import recording_seconds
+from .config import SECRET_MASK, AppSettings, LlmSettings, data_dir, recording_path, uploads_dir
 from .export import session_markdown
 from .frameworks import Framework, new_id
 from .monitor.manager import SessionBusy, StartRequest
 
+log = logging.getLogger(__name__)
+
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 UNSAFE_NAME = re.compile(r"[^\w.\-()]+")  # \w 包含中文
+AUDIO_PATH = re.compile(r"/api/sessions/[^/]+/audio")
 
 
 class FolderRequest(BaseModel):
@@ -48,9 +54,7 @@ def create_app(services: Services, *, token: str, web_dir: Path | None = None) -
     async def guard(request: Request, call_next):
         if not _local_host(request.headers.get("host", "")):
             return JSONResponse({"detail": "只允许本机访问"}, status_code=403)
-        if request.url.path.startswith("/api/") and not secrets.compare_digest(
-            request.headers.get("x-token", ""), token
-        ):
+        if request.url.path.startswith("/api/") and not _authorized(request, token):
             return JSONResponse({"detail": "缺少或错误的访问令牌"}, status_code=401)
         return await call_next(request)
 
@@ -176,12 +180,21 @@ def create_app(services: Services, *, token: str, web_dir: Path | None = None) -
 
     @app.get("/api/sessions/{session_id}")
     def get_session(session_id: str) -> dict[str, Any]:
-        return _session_or_404(services, session_id)
+        detail = _session_or_404(services, session_id)
+        return {**detail, "recording": _recording_info(session_id)}
 
     @app.get("/api/sessions/{session_id}/report.md")
     def session_report(session_id: str) -> PlainTextResponse:
         detail = _session_or_404(services, session_id)
         return PlainTextResponse(session_markdown(detail), media_type="text/markdown; charset=utf-8")
+
+    @app.get("/api/sessions/{session_id}/audio")
+    def session_audio(session_id: str) -> FileResponse:
+        """本场录音。支持 Range 请求，播放器可以直接拖动到任意位置。"""
+        path = recording_path(session_id)
+        if not path.is_file():
+            raise HTTPException(404, "这一场没有录音")
+        return FileResponse(path, media_type="audio/wav")
 
     @app.delete("/api/sessions/{session_id}", status_code=204)
     def delete_session(session_id: str) -> None:
@@ -190,6 +203,7 @@ def create_app(services: Services, *, token: str, web_dir: Path | None = None) -
             raise HTTPException(409, "这一场还在进行，请先停止")
         if not services.storage.delete_session(session_id):
             raise HTTPException(404, "找不到这一场记录")
+        _remove_recording(session_id)
 
     # —— 上传音频（浏览器模式下没有系统文件对话框） ——
 
@@ -206,9 +220,7 @@ def create_app(services: Services, *, token: str, web_dir: Path | None = None) -
 
     @app.websocket("/api/events")
     async def events(socket: WebSocket) -> None:
-        if not _local_host(socket.headers.get("host", "")) or not secrets.compare_digest(
-            socket.query_params.get("token", ""), token
-        ):
+        if not _local_host(socket.headers.get("host", "")) or not _same(socket.query_params.get("token", ""), token):
             await socket.close(code=4401)
             return
         await socket.accept()
@@ -259,6 +271,37 @@ async def _pump(socket: WebSocket, queue: asyncio.Queue) -> None:
 
         group.start_soon(forward)
         group.start_soon(watch)
+
+
+def _same(value: str, token: str) -> bool:
+    # 按字节比较：compare_digest 遇到非 ASCII 的字符串会抛异常，而请求参数可能是任意文字。
+    return secrets.compare_digest(value.encode(), token.encode())
+
+
+def _authorized(request: Request, token: str) -> bool:
+    if _same(request.headers.get("x-token", ""), token):
+        return True
+    if request.method in ("GET", "HEAD") and AUDIO_PATH.fullmatch(request.url.path):
+        return _same(request.query_params.get("token", ""), token)
+    return False
+
+
+def _remove_recording(session_id: str) -> None:
+    path = recording_path(session_id)
+    for _ in range(20):
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except PermissionError:  # Windows：播放器刚断开时文件可能还没释放，稍等再试
+            time.sleep(0.1)
+    log.warning("could not delete recording %s; the session record is already gone", path)
+
+
+def _recording_info(session_id: str) -> dict[str, Any] | None:
+    path = recording_path(session_id)
+    if not path.is_file():
+        return None
+    return {"path": str(path), "bytes": path.stat().st_size, "seconds": round(recording_seconds(path), 1)}
 
 
 def _local_host(host: str) -> bool:

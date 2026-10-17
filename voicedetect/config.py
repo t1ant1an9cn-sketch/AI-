@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 from typing import Any, Literal
 
 import platformdirs
@@ -35,6 +36,16 @@ def uploads_dir() -> Path:
     path = data_dir() / "uploads"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+_SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def recording_path(session_id: str) -> Path:
+    """一场盯播的录音文件位置（不论是否存在）。场次 ID 来自网址，先校验，防止拼出目录外的路径。"""
+    if not _SESSION_ID.fullmatch(session_id):
+        raise ValueError("场次 ID 无效")
+    return data_dir() / "recordings" / f"{session_id}.wav"
 
 
 def database_path() -> Path:
@@ -64,6 +75,8 @@ class LlmSettings(BaseModel):
 class MonitorSettings(BaseModel):
     window_seconds: float = Field(default=300, ge=30, le=3600, description="每次分析过去多少秒")
     interval_seconds: float = Field(default=60, ge=10, le=1800, description="每隔多少秒分析一次")
+    # 只对实时来源（系统声音、麦克风、直播流）生效；文件本来就在磁盘上，不重复保存。
+    save_audio: bool = Field(default=False, description="实时盯播时把声音存到本机")
 
     @model_validator(mode="after")
     def _check(self) -> MonitorSettings:

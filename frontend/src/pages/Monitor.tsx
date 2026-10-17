@@ -1,4 +1,5 @@
 import {
+  AudioLines,
   Bot,
   Download,
   FileAudio,
@@ -23,6 +24,7 @@ import { Transcript, TranscriptLegend } from "../components/Transcript";
 import { Empty, Meter, Notice, Segmented, Status } from "../components/ui";
 import { useApp } from "../context";
 import { clock, megabytes, span } from "../format";
+import { clearPrefill, readPrefill } from "../prefill";
 import { unlockSound } from "../sound";
 import type { Device, FrameworkSummary, ModelStatus, Snapshot, SourceSpec, WindowReport } from "../types";
 
@@ -40,9 +42,19 @@ const INTERVALS = [15, 30, 60, 120, 300];
 const STREAM = /^(https?|rtmps?|rtsp|srt):\/\//i;
 
 export function MonitorPage() {
-  const { live } = useApp();
+  const { live, route, navigate } = useApp();
   const [choosing, setChoosing] = useState(false);
-  if (!live.session || choosing) return <Setup onStarted={() => setChoosing(false)} />;
+  const fresh = route[1] === "new"; // #/monitor/new：从复盘页跳来开一场新的
+  if (!live.session || choosing || fresh) {
+    return (
+      <Setup
+        onStarted={() => {
+          setChoosing(false);
+          if (fresh) navigate("/monitor");
+        }}
+      />
+    );
+  }
   return <LiveView session={live.session} level={live.level} onNewSession={() => setChoosing(true)} />;
 }
 
@@ -56,27 +68,34 @@ function basename(path: string): string {
 
 function Setup({ onStarted }: { onStarted(): void }) {
   const { settings, info, live, setSession, navigate } = useApp();
+  const [prefill] = useState(readPrefill); // “用这段录音重新分析”带过来的录音和框架
   const [frameworks, setFrameworks] = useState<FrameworkSummary[] | null>(null);
-  const [frameworkId, setFrameworkId] = useState(() => localStorage.getItem("last-framework") ?? "");
-  const [kind, setKind] = useState<SourceKind>(() => (localStorage.getItem("last-source") as SourceKind) || "demo");
+  const [frameworkId, setFrameworkId] = useState(
+    () => prefill?.frameworkId ?? localStorage.getItem("last-framework") ?? "",
+  );
+  const [kind, setKind] = useState<SourceKind>(() =>
+    prefill ? "file" : (localStorage.getItem("last-source") as SourceKind) || "demo",
+  );
   const [devices, setDevices] = useState<Device[] | null>(null);
   const [deviceError, setDeviceError] = useState("");
   const [deviceChoice, setDeviceChoice] = useState<Record<"loopback" | "microphone", string>>({
     loopback: "",
     microphone: "",
   });
-  const [file, setFile] = useState<{ path: string; name: string } | null>(null);
+  const [file, setFile] = useState<{ path: string; name: string } | null>(() => prefill?.file ?? null);
   const [uploading, setUploading] = useState(false);
   const [fileRealtime, setFileRealtime] = useState(false);
   const [demoRealtime, setDemoRealtime] = useState(true);
   const [url, setUrl] = useState("");
-  const [windowSeconds, setWindowSeconds] = useState(300);
-  const [intervalSeconds, setIntervalSeconds] = useState(60);
-  const [title, setTitle] = useState("");
+  const [windowSeconds, setWindowSeconds] = useState(() => prefill?.windowSeconds ?? 300);
+  const [intervalSeconds, setIntervalSeconds] = useState(() => prefill?.intervalSeconds ?? 60);
+  const [title, setTitle] = useState(() => prefill?.title ?? "");
   const [model, setModel] = useState<ModelStatus | null>(null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => clearPrefill(), []);
 
   useEffect(() => {
     api
@@ -94,7 +113,7 @@ function Setup({ onStarted }: { onStarted(): void }) {
   }, []);
 
   useEffect(() => {
-    if (!settings) return;
+    if (!settings || prefill) return; // 重新分析时沿用原场的分析方式
     setWindowSeconds(settings.monitor.window_seconds);
     setIntervalSeconds(settings.monitor.interval_seconds);
   }, [settings]);
@@ -189,6 +208,13 @@ function Setup({ onStarted }: { onStarted(): void }) {
   };
 
   const selected = frameworks?.find((item) => item.id === frameworkId);
+  // 只录实时来源；文件本来就在磁盘上
+  const liveSource = kind === "loopback" || kind === "microphone" || kind === "url";
+  const recordHint: { tone: "good" | "neutral"; label: string } = !settings?.monitor.save_audio
+    ? { tone: "neutral", label: "不保存（可在设置里开启）" }
+    : liveSource
+      ? { tone: "good", label: "会保存到本机" }
+      : { tone: "neutral", label: "音频文件不另存录音" };
 
   return (
     <div className="page">
@@ -436,6 +462,16 @@ function Setup({ onStarted }: { onStarted(): void }) {
                   只靠关键词也能工作。开启后，大模型会额外判断说错价格、卖点讲得含糊等关键词发现不了的问题。
                 </span>
               )}
+              <div className="row">
+                <AudioLines size={16} aria-hidden />
+                <span className="grow">录音</span>
+                <Status tone={recordHint.tone}>{recordHint.label}</Status>
+              </div>
+              {settings?.monitor.save_audio && liveSource && (
+                <span className="help secondary small">
+                  录音只存在本机，复盘时可以边听边核对，也能用它重新分析。约每小时 115 MB。
+                </span>
+              )}
             </div>
           </section>
         </div>
@@ -560,6 +596,7 @@ function LiveView({ session, level, onNewSession }: { session: Snapshot; level: 
             <span>
               每 {span(session.interval_seconds)}分析过去 {span(session.window_seconds)}
             </span>
+            {session.recording && <span>{running ? "录音中" : "已录音"}（只存本机）</span>}
           </div>
         </div>
         {running && (

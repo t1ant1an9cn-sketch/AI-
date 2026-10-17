@@ -10,6 +10,7 @@ function snapshot(overrides: Partial<Snapshot> = {}): Snapshot {
     session_id: "s1",
     title: "测试",
     paced: true,
+    recording: null,
     state: "running",
     error: "",
     started_at: "2026-10-17T20:00:00+08:00",

@@ -190,3 +190,51 @@ def test_llm_connection_errors_are_explained(client):
     body = {"enabled": True, "base_url": "http://127.0.0.1:9/v1", "api_key": "", "model": "qwen-plus"}
     response = client.post("/api/llm/test", json=body)
     assert response.status_code == 400 and "连不上大模型接口" in response.json()["detail"]
+
+
+def run_session(client, services):
+    """开启录音，跑完一场，返回场次 ID。"""
+    settings = client.get("/api/settings").json()
+    settings["monitor"]["save_audio"] = True
+    assert client.put("/api/settings", json=settings).json()["monitor"]["save_audio"] is True
+    session_id = client.post("/api/session/start", json=START).json()["session_id"]
+    assert services.monitor.current.wait(10)
+    return session_id
+
+
+def test_live_sessions_are_recorded_and_can_be_played_with_seeking(tmp_path):
+    services = make_services(tmp_path, seconds=3, live=True, pace=0.001)
+    try:
+        with connect(services) as client:
+            session_id = run_session(client, services)
+            recording = client.get(f"/api/sessions/{session_id}").json()["recording"]
+            assert recording["bytes"] == 44 + 3 * 16000 * 2 and recording["seconds"] == 3.0
+            assert Path(recording["path"]).is_file()
+
+            # <audio> 元素没法加请求头，令牌放在网址里；其他接口不接受这种写法
+            no_header = {"X-Token": ""}
+            url = f"/api/sessions/{session_id}/audio"
+            audio = client.get(url, params={"token": TOKEN}, headers=no_header)
+            assert audio.status_code == 200 and audio.headers["content-type"] == "audio/wav"
+            assert audio.content[:4] == b"RIFF" and len(audio.content) == recording["bytes"]
+            part = client.get(url, params={"token": TOKEN}, headers={**no_header, "Range": "bytes=44-143"})
+            assert part.status_code == 206 and len(part.content) == 100  # 拖动进度条
+            assert client.get(url, headers=no_header).status_code == 401
+            assert client.get("/api/info", params={"token": TOKEN}, headers=no_header).status_code == 401
+
+            assert client.delete(f"/api/sessions/{session_id}").status_code == 204
+            assert not Path(recording["path"]).exists()  # 删除场次时录音一起删
+            assert client.get(url).status_code == 404
+    finally:
+        services.close()
+
+
+def test_files_are_not_recorded_again(client, services):
+    session_id = run_session(client, services)  # 来源是文件（非实时）
+    assert client.get(f"/api/sessions/{session_id}").json()["recording"] is None
+    assert client.get(f"/api/sessions/{session_id}/audio").status_code == 404
+
+
+def test_recording_ids_cannot_point_outside_the_folder(client):
+    response = client.get("/api/sessions/..%5Cvoicedetect/audio")
+    assert (response.status_code, response.json()["detail"]) == (400, "场次 ID 无效")
