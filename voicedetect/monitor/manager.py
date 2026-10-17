@@ -26,10 +26,12 @@ def demo_audio_path() -> str:
 
 
 class SourceSpec(BaseModel):
-    kind: Literal["device", "file", "url", "demo"]
+    kind: Literal["device", "app", "file", "url", "demo"]
     device_id: str | None = None
     device_name: str = ""
     loopback: bool = True  # 设备是否为系统声音（回环）
+    process_id: int | None = None  # 只听这个程序（kind 为 app）
+    app_name: str = ""
     path: str = ""
     url: str = ""
     realtime: bool = True  # 文件是否按实际速度播放
@@ -52,6 +54,12 @@ def build_source(spec: SourceSpec) -> AudioSource:
         from ..audio.devices import DeviceSource
 
         return DeviceSource(spec.device_id, loopback=spec.loopback, name=spec.device_name)
+    if spec.kind == "app":
+        from ..audio.apps import AppSource
+
+        if not spec.process_id:
+            raise ValueError("请选择要听的程序")
+        return AppSource(spec.process_id, name=spec.app_name)
     from ..audio.files import MediaSource
 
     if spec.kind == "file":
@@ -189,7 +197,8 @@ class SessionManager:
     def _launch_prepared(
         self, *, source: AudioSource, title: str, settings: AppSettings, **kwargs: Any
     ) -> MonitorSession:
-        """直播间链接要先打开网页、找到声音（几秒到二十几秒）。放在建场次之前：打不开就直接报错，不留空记录。"""
+        """直播间链接要先打开网页、找到声音（几秒到二十几秒），程序声音要先确认程序还开着。
+        放在建场次之前：打不开就直接报错，不留空记录。"""
         prepare = getattr(source, "prepare", None)
         try:
             if prepare is not None:

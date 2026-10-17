@@ -68,11 +68,17 @@ def test_session_cookies_are_saved_without_an_expiry():
         },
         {"name": "ttwid", "value": "2", "domain": "live.douyin.com", "path": "/", "expires": 1.9e9, "session": False},
     ]
-    assert to_params(read) == [
-        {"name": "cookie2", "value": "1", "domain": ".taobao.com", "path": "/", "secure": True, "httpOnly": True,
-         "sameSite": "None"},
-        {"name": "ttwid", "value": "2", "domain": "live.douyin.com", "path": "/", "expires": 1.9e9},
-    ]  # fmt: skip
+    session, persistent = to_params(read)
+    assert session == {
+        "name": "cookie2",
+        "value": "1",
+        "domain": ".taobao.com",
+        "path": "/",
+        "secure": True,
+        "httpOnly": True,
+        "sameSite": "None",
+    }
+    assert persistent == {"name": "ttwid", "value": "2", "domain": "live.douyin.com", "path": "/", "expires": 1.9e9}
 
 
 @requires_browser

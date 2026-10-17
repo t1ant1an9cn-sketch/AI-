@@ -82,12 +82,14 @@ def create_app(services: Services, *, token: str, web_dir: Path | None = None) -
 
     @app.get("/api/info")
     def info() -> dict[str, Any]:
+        from .audio import apps
         from .audio.devices import loopback_supported
 
         return {
             "version": __version__,
             "platform": sys.platform,
             "loopback_supported": loopback_supported(),
+            "app_capture_supported": apps.supported(),
             "data_dir": str(data_dir()),
         }
 
@@ -99,6 +101,16 @@ def create_app(services: Services, *, token: str, web_dir: Path | None = None) -
             return list_devices()
         except Exception as exc:
             raise HTTPException(500, f"读取音频设备失败：{exc}") from None
+
+    @app.get("/api/apps")
+    def apps() -> list[dict[str, Any]]:
+        """用着声音的程序，可以只听其中一个（Windows 11）。"""
+        from .audio.apps import list_apps
+
+        try:
+            return list_apps()
+        except Exception as exc:
+            raise HTTPException(500, f"读取正在出声的程序失败：{exc}") from None
 
     # —— 话术框架 ——
 

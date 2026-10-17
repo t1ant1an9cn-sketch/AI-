@@ -22,7 +22,7 @@ import { api, desktop } from "../api";
 import { AlertList, CoverageChips, CoverageList, FindingList, LlmPanel, MetricTiles } from "../components/Report";
 import { RateChart } from "../components/RateChart";
 import { Transcript, TranscriptLegend } from "../components/Transcript";
-import { Empty, LevelBars, Meter, Notice, Status } from "../components/ui";
+import { Empty, LevelBars, Meter, Notice, Segmented, Status } from "../components/ui";
 import { useApp } from "../context";
 import { clock, dateTime, megabytes, span } from "../format";
 import { clearPrefill, readPrefill } from "../prefill";
@@ -31,6 +31,7 @@ import type {
   Alert,
   Device,
   FrameworkSummary,
+  AppInfo,
   LoginStatus,
   ModelStatus,
   Snapshot,
@@ -39,6 +40,7 @@ import type {
 } from "../types";
 
 type SourceKind = "loopback" | "microphone" | "file" | "url" | "demo";
+type LoopbackScope = "app" | "device";
 
 const SOURCES: { value: SourceKind; label: string; desc: string; icon: ReactNode }[] = [
   { value: "url", label: "直播间链接", desc: "粘贴链接就能盯", icon: <Link size={20} /> },
@@ -93,6 +95,13 @@ function Setup({ onStarted }: { onStarted(): void }) {
     loopback: "",
     microphone: "",
   });
+  // 系统声音：只听一个程序（Windows 11），还是整个播放设备
+  const [scope, setScope] = useState<LoopbackScope>(() =>
+    localStorage.getItem("loopback-scope") === "device" ? "device" : "app",
+  );
+  const [apps, setApps] = useState<AppInfo[] | null>(null);
+  const [appError, setAppError] = useState("");
+  const [appChoice, setAppChoice] = useState<number | null>(null);
   const [file, setFile] = useState<{ path: string; name: string } | null>(() => prefill?.file ?? null);
   const [uploading, setUploading] = useState(false);
   const [fileRealtime, setFileRealtime] = useState(false);
@@ -146,9 +155,26 @@ function Setup({ onStarted }: { onStarted(): void }) {
       .catch((reason: Error) => setDeviceError(reason.message));
   };
 
+  const loadApps = () => {
+    setAppError("");
+    api
+      .apps()
+      .then((items) => {
+        setApps(items);
+        setAppChoice((current) =>
+          items.some((app) => app.pid === current) ? current : ((items.find((app) => app.active) ?? items[0])?.pid ?? null),
+        );
+      })
+      .catch((reason: Error) => setAppError(reason.message));
+  };
+
+  const appMode = kind === "loopback" && Boolean(info?.app_capture_supported) && scope === "app";
+
   useEffect(() => {
-    if ((kind === "loopback" || kind === "microphone") && devices === null) loadDevices();
-  }, [kind]);
+    if (appMode) {
+      if (apps === null) loadApps();
+    } else if ((kind === "loopback" || kind === "microphone") && devices === null) loadDevices();
+  }, [kind, appMode]);
 
   const modelStatus = live.model ?? model;
   const engine = settings?.asr.engine ?? "sensevoice";
@@ -156,9 +182,13 @@ function Setup({ onStarted }: { onStarted(): void }) {
     engine === "xfyun" ? Boolean(settings?.asr.xfyun_app_id && settings?.asr.xfyun_api_key) : Boolean(modelStatus?.installed);
   const listed = (devices ?? []).filter((device) => device.kind === kind);
   const deviceKind = kind === "loopback" || kind === "microphone";
+  const chosenApp = apps?.find((app) => app.pid === appChoice) ?? null;
+  const sourceLoaded = appMode ? apps !== null : !deviceKind || devices !== null;
 
   let sourceProblem = "";
-  if (deviceKind) {
+  if (appMode) {
+    if (apps !== null && !chosenApp) sourceProblem = apps.length ? "请选择要听的程序" : "没有找到正在用声音的程序";
+  } else if (deviceKind) {
     if (devices !== null && !listed.length) sourceProblem = kind === "loopback" ? "没有找到可采集的播放设备" : "没有找到麦克风";
   } else if (kind === "file" && !file) sourceProblem = "请先选择音频文件";
   else if (kind === "url" && !LINK.test(url.trim())) sourceProblem = "请粘贴直播间链接或直播流地址";
@@ -194,7 +224,8 @@ function Setup({ onStarted }: { onStarted(): void }) {
     setStarting(true);
     setError("");
     let source: SourceSpec;
-    if (deviceKind) {
+    if (appMode) source = { kind: "app", process_id: chosenApp!.pid, app_name: chosenApp!.name };
+    else if (deviceKind) {
       const device = listed.find((d) => d.id === deviceChoice[kind]);
       source = { kind: "device", device_id: device?.id ?? null, device_name: device?.name ?? "", loopback: kind === "loopback" };
     } else if (kind === "file") source = { kind: "file", path: file!.path, realtime: fileRealtime };
@@ -210,6 +241,7 @@ function Setup({ onStarted }: { onStarted(): void }) {
       });
       localStorage.setItem("last-framework", frameworkId);
       localStorage.setItem("last-source", kind);
+      if (kind === "loopback" && info?.app_capture_supported) localStorage.setItem("loopback-scope", scope);
       setSession(snapshot);
       onStarted();
     } catch (reason) {
@@ -234,7 +266,11 @@ function Setup({ onStarted }: { onStarted(): void }) {
         ? (file?.name ?? "还没选文件")
         : kind === "demo"
           ? "保温杯讲解（合成语音）"
-          : (listed.find((device) => device.id === deviceChoice[kind])?.name ?? "还没选设备");
+          : appMode
+            ? chosenApp
+              ? `只听：${chosenApp.name}`
+              : "还没选程序"
+            : (listed.find((device) => device.id === deviceChoice[kind])?.name ?? "还没选设备");
 
   return (
     <div className="page">
@@ -273,7 +309,47 @@ function Setup({ onStarted }: { onStarted(): void }) {
               ))}
             </div>
             <div className="source-pane">
-              {deviceKind && (
+              {kind === "loopback" && info?.app_capture_supported && (
+                <Segmented<LoopbackScope>
+                  label="听的范围"
+                  value={scope}
+                  onChange={setScope}
+                  options={[
+                    { value: "app", label: "只听一个程序" },
+                    { value: "device", label: "整个播放设备" },
+                  ]}
+                />
+              )}
+              {appMode && (
+                <>
+                  <div className="row">
+                    <select
+                      className="select grow"
+                      aria-label="选择程序"
+                      value={appChoice ?? ""}
+                      onChange={(event) => setAppChoice(Number(event.target.value))}
+                      disabled={!apps?.length}
+                    >
+                      {apps === null && <option value="">正在读取……</option>}
+                      {apps?.length === 0 && <option value="">没有找到正在用声音的程序</option>}
+                      {apps?.map((app) => (
+                        <option key={app.pid} value={app.pid}>
+                          {app.name}
+                          {app.active ? "（正在出声）" : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <button className="icon-btn" type="button" title="重新读取正在用声音的程序" onClick={loadApps}>
+                      <RefreshCw size={16} />
+                    </button>
+                  </div>
+                  {appError && <Notice tone="critical">{appError}</Notice>}
+                  <span className="help">
+                    先在电脑上打开要盯的直播，放出声音（例如微信里的视频号、投屏到电脑上的手机画面），点刷新后选那个程序。只听这个程序的声音，电脑上的其他声音不会混进来。它的声音要从默认播放设备放出来，也不要在音量合成器里把它静音。
+                  </span>
+                </>
+              )}
+              {deviceKind && !appMode && (
                 <>
                   {kind === "loopback" && info && !info.loopback_supported && (
                     <Notice tone="warning">
@@ -303,7 +379,7 @@ function Setup({ onStarted }: { onStarted(): void }) {
                   {deviceError && <Notice tone="critical">{deviceError}</Notice>}
                   <span className="help">
                     {kind === "loopback"
-                      ? "先在浏览器或直播伴侣里打开要盯的直播间，确认声音从这个设备播放出来。电脑上的其他声音也会被一起识别。适合需要登录才能看、或者没有网页版的直播。"
+                      ? "先在电脑上打开要盯的直播，确认声音从这个设备播放出来。电脑上的其他声音也会被一起识别，盯播时请关掉其他声音。"
                       : "适合主播在自己的电脑上使用，直接采集主播的声音。"}
                   </span>
                 </>
@@ -523,7 +599,7 @@ function Setup({ onStarted }: { onStarted(): void }) {
             {starting ? <LoaderCircle size={18} className="spin" /> : <Play size={18} />}
             {starting ? (kind === "url" ? "正在打开直播间……" : "正在启动……") : "开始盯播"}
           </button>
-          {sourceProblem && (!deviceKind || devices !== null) && <span className="launch-hint">{sourceProblem}</span>}
+          {sourceProblem && sourceLoaded && <span className="launch-hint">{sourceProblem}</span>}
         </aside>
       </div>
     </div>
@@ -771,7 +847,12 @@ function LiveView({ session, level, onNewSession }: { session: Snapshot; level: 
 
       {session.state === "failed" && <Notice tone="critical">{session.error}</Notice>}
       {running && !session.health.signal && (
-        <Notice tone="warning">没有收到声音：检查直播间是否在播放、播放器是否静音，或者是否选错了设备。</Notice>
+        <Notice tone="warning">
+          没有收到声音：
+          {/* 排查建议跟着来源走，例如只听某个程序时要从默认播放设备出声 */}
+          {[...session.alerts].reverse().find((alert) => alert.kind === "no_signal")?.suggestion ??
+            "检查直播间是否在播放、播放器是否静音，或者是否选错了音频设备。"}
+        </Notice>
       )}
       {session.health.dropped_seconds > 0 && (
         <Notice tone="warning">

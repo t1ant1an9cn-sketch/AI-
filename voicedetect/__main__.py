@@ -135,12 +135,16 @@ def _analyze(args: argparse.Namespace) -> int:
 
 
 def _devices() -> int:
+    from .audio.apps import list_apps
     from .audio.devices import list_devices
 
     kinds = {"loopback": "系统声音", "microphone": "麦克风"}
     for device in list_devices():
         mark = "（默认）" if device["default"] else ""
         print(f"{kinds[device['kind']]}  {device['name']}{mark}\n    ID: {device['id']}")
+    for app in list_apps():
+        mark = "（正在出声）" if app["active"] else ""
+        print(f"程序声音  {app['name']}{mark}\n    {app['exe']}，进程 ID: {app['pid']}")
     return 0
 
 

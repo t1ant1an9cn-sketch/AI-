@@ -142,7 +142,15 @@ def test_no_signal_is_reported_for_live_sources():
     source = BlockSource(12, live=True, level=0.0)
     options = SessionOptions(no_signal_seconds=5)
     _, _, store = run(source=source, options=options)
-    assert [a.title for a in store.alerts if a.kind == "no_signal"] == ["没有收到声音"]
+    [alert] = [a for a in store.alerts if a.kind == "no_signal"]
+    assert alert.title == "没有收到声音"
+    assert alert.suggestion == "检查直播间是否在播放、播放器是否静音，或者是否选错了音频设备。"
+
+    # 来源自己知道怎么排查时（例如只听某个程序），用它的建议
+    source = BlockSource(12, live=True, level=0.0)
+    source.silence_hint = "确认这个程序正在播放。"
+    _, _, store = run(source=source, options=options)
+    assert [a.suggestion for a in store.alerts if a.kind == "no_signal"] == ["确认这个程序正在播放。"]
 
 
 def test_recognizer_failure_is_reported_and_recorded():

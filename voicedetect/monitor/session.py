@@ -405,7 +405,9 @@ class MonitorSession:
                 "high",
                 "没有收到声音",
                 f"已经 {self._silent_for:.0f} 秒没有任何音频信号。",
-                "检查直播间是否在播放、播放器是否静音，或者是否选错了音频设备。",
+                # 来源可以给出更具体的排查建议，例如只听某个程序时
+                getattr(self.source, "silence_hint", "")
+                or "检查直播间是否在播放、播放器是否静音，或者是否选错了音频设备。",
             )
 
     def _watch_pause(self) -> None:

@@ -35,7 +35,7 @@
 | `analysis/report.py` | 句子、证据、指标、问题、提醒、窗口报告等数据结构（Pydantic），接口、数据库和界面共用。 |
 | `analysis/llm.py` | 大模型审核：拼提示词、调用兼容 OpenAI 的接口、解析结果、核对引文、过滤“识别错字”类问题。 |
 | `voicedetect/asr/` | 语音识别。`base.py` 定义统一接口；`sensevoice.py` 本地识别；`xfyun.py` 讯飞实时转写；`models.py` 模型下载、校验和导入。 |
-| `voicedetect/audio/` | 音频来源，统一输出 16 kHz 单声道 float32。`devices.py` 麦克风和系统声音（soundcard）；`files.py` 文件和直播流（PyAV）；`room.py` 直播间链接；`browser.py` 后台无界面浏览器（Edge/Chrome，DevTools 协议）；`logins.py` 直播平台登录窗口和保存下来的 Cookie；`recording.py` 把实时盯播的声音存成 WAV。 |
+| `voicedetect/audio/` | 音频来源，统一输出 16 kHz 单声道 float32。`devices.py` 麦克风和系统声音（soundcard）；`apps.py` 只听某个程序的声音（Windows 按进程回环采集，ctypes 调 COM）；`files.py` 文件和直播流（PyAV）；`room.py` 直播间链接；`browser.py` 后台无界面浏览器（Edge/Chrome，DevTools 协议）；`logins.py` 直播平台登录窗口和保存下来的 Cookie；`recording.py` 把实时盯播的声音存成 WAV。 |
 | `voicedetect/monitor/` | `session.py` 一场盯播的编排；`manager.py` 按设置创建来源、识别引擎和审核器，同一时间只允许一场；`bus.py` 把后台线程的事件转给各个 WebSocket 连接。 |
 | `voicedetect/storage.py` | SQLite 存储（SQLAlchemy）。 |
 | `voicedetect/config.py` | 数据目录和应用设置；接口返回设置时遮罩密钥。 |
@@ -85,6 +85,11 @@ WebSocket 事件类型：`hello`、`state`、`level`（输入电平）、`partia
 - 打开直播间放在建场次之前（几秒到二十几秒），打不开就直接报错，不留下一场空记录。断流时先重连原地址，不行再重新打开网页拿新地址，都失败就提醒“直播可能已经结束”并正常收尾。来源发现的这些情况通过 `take_notices()` 变成系统提醒。
 - 用的是系统自带的浏览器，打包成 exe 也不需要额外安装；没有浏览器、需要登录或没有网页版的直播，用“系统声音”。
 
+**没有网页版的直播靠“只听一个程序”。** 视频号这类只能在电脑客户端（或投屏到电脑的手机画面）里看的直播，不逐个对接，而是只采集播放它的那个程序的声音（Windows 11 的按进程回环采集：`ActivateAudioInterfaceAsync("VAD\Process_Loopback")`，带上子进程）。
+- 程序列表来自各播放设备上的音频会话。浏览器、微信的声音其实由子进程播放，所以每个会话沿父进程往上找到用户启动的那个程序（到资源管理器、系统服务为止；父进程比子进程启动得晚，说明进程 ID 被重新用过，也停下），采集时包含它的整个进程树。不列出本程序自己（界面提示音）。
+- 系统直接按 16 kHz 单声道 16 位送来；程序不出声时照样送静音，时间轴不断。实测只采得到送往默认播放设备的声音，送到其他设备时只有静音，所以这个来源的“没有收到声音”提醒会提示检查输出设备。程序退出后提醒并正常收尾。
+- 用 ctypes 按虚函数表的位置调用 COM 接口，不新增依赖，打包也不用额外处理。Windows 10 没有这个系统接口，界面上只显示“整个播放设备”。
+
 **提醒去重。** 窗口分析的问题只在第一次出现时提醒，持续存在不重复，消失后再出现才再提醒；违规和冷场在发生时提醒一次；大模型的问题按“同一句原话”或“同一类别”去重。
 
 **本地优先。** 默认的识别引擎在本机运行；讯飞和大模型都是可选的云服务。数据全部存在本机 SQLite，场次里保存开播时话术框架的完整副本，之后修改框架不影响历史记录。
@@ -119,6 +124,7 @@ WebSocket 事件类型：`hello`、`state`、`level`（输入电平）、`partia
 - `tests/test_recording.py`：WAV 在录音进行中就能读出完整长度；场次 ID 不能拼出目录外的路径。
 - `tests/test_api.py`：HTTP 接口和 WebSocket 的完整开播流程、鉴权和输入校验；实时来源会录音、文件不录、录音地址的令牌和 Range 请求、删除场次时删除录音。
 - `tests/test_room.py`：本机起一个模拟直播间网站，用真实的 Edge/Chrome 打开：fetch flv 的网页走直接拉流（CDN 要求 Referer，断开后自动重连），Web Audio 和 `<audio>` 出声的网页走从网页取声音（被挤到后台也不静音），没开播的网页给出提示；没有浏览器时跳过这几项。
+- `tests/test_apps.py`：同时启动两个播放不同频率正弦波的程序（很轻，-50 dBFS），只采集其中一个时另一个的声音低 40 dB 以上；程序列表里有它且标为正在出声；程序退出后来源结束并提醒；父进程归并规则用构造的进程表测试。需要 Windows 11 和播放设备，否则跳过。
 - `tests/test_logins.py`：模拟网站的直播间要带着登录页发的会话 Cookie 才有直播：未登录时打不开，在登录窗口（测试时用无界面模式）登录一次后能直接拉流；重开登录窗口仍是登录状态；清除后 Cookie 和资料目录都删掉；Cookie 文件在 Windows 上不是明文。
 - `tests/test_xfyun.py`：用本地 WebSocket 服务器模拟讯飞协议（签名用官方文档示例核对）。
 - `tests/test_llm.py`：用模拟的 HTTP 服务测试提示词、结果解析和错误提示。

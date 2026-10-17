@@ -274,10 +274,18 @@ export interface Device {
   default: boolean;
 }
 
+export interface AppInfo {
+  pid: number;
+  name: string; // 程序文件里的“文件说明”，例如“Microsoft Edge”
+  exe: string;
+  active: boolean; // 正在出声
+}
+
 export interface Info {
   version: string;
   platform: string;
   loopback_supported: boolean;
+  app_capture_supported: boolean; // 能否只听某个程序的声音（Windows 11）
   data_dir: string;
 }
 
@@ -316,6 +324,7 @@ export interface SessionDetail extends SessionSummary {
 
 export type SourceSpec =
   | { kind: "device"; device_id: string | null; device_name: string; loopback: boolean }
+  | { kind: "app"; process_id: number; app_name: string }
   | { kind: "file"; path: string; realtime: boolean }
   | { kind: "url"; url: string }
   | { kind: "demo"; realtime: boolean };

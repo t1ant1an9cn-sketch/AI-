@@ -1,4 +1,5 @@
 import type {
+  AppInfo,
   Device,
   Framework,
   FrameworkSummary,
@@ -83,6 +84,7 @@ const id = (value: string) => encodeURIComponent(value);
 export const api = {
   info: () => json<Info>("GET", "/api/info"),
   devices: () => json<Device[]>("GET", "/api/devices"),
+  apps: () => json<AppInfo[]>("GET", "/api/apps"),
 
   frameworks: () => json<FrameworkSummary[]>("GET", "/api/frameworks"),
   framework: (frameworkId: string) => json<Framework>("GET", `/api/frameworks/${id(frameworkId)}`),
