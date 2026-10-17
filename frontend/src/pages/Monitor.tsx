@@ -34,12 +34,13 @@ const SOURCES: { value: SourceKind; label: string; icon: ReactNode }[] = [
   { value: "loopback", label: "系统声音", icon: <Speaker size={15} /> },
   { value: "microphone", label: "麦克风", icon: <Mic size={15} /> },
   { value: "file", label: "音频文件", icon: <FileAudio size={15} /> },
-  { value: "url", label: "直播流地址", icon: <Link size={15} /> },
+  { value: "url", label: "直播间链接", icon: <Link size={15} /> },
   { value: "demo", label: "演示音频", icon: <Sparkles size={15} /> },
 ];
 const WINDOWS = [60, 120, 180, 300, 600, 900, 1800];
 const INTERVALS = [15, 30, 60, 120, 300];
-const STREAM = /^(https?|rtmps?|rtsp|srt):\/\//i;
+// 直播间链接、分享口令里的链接、没写 https:// 的“live.douyin.com/…”，或者 flv/m3u8/rtmp 直播流地址
+const LINK = /(https?|rtmps?|rtsp|srt):\/\/\S+|^[a-z0-9-]+(\.[a-z0-9-]+)+\//i;
 
 export function MonitorPage() {
   const { live, route, navigate } = useApp();
@@ -149,7 +150,7 @@ function Setup({ onStarted }: { onStarted(): void }) {
   if (kind === "loopback" || kind === "microphone") {
     if (devices !== null && !listed.length) sourceProblem = kind === "loopback" ? "没有找到可采集的播放设备" : "没有找到麦克风";
   } else if (kind === "file" && !file) sourceProblem = "请先选择音频文件";
-  else if (kind === "url" && !STREAM.test(url.trim())) sourceProblem = "请填写以 http(s)://、rtmp:// 等开头的直播流地址";
+  else if (kind === "url" && !LINK.test(url.trim())) sourceProblem = "请粘贴直播间链接或直播流地址";
 
   const canStart =
     !starting && engineReady && Boolean(frameworkId) && !sourceProblem && intervalSeconds <= windowSeconds && !uploading;
@@ -333,13 +334,15 @@ function Setup({ onStarted }: { onStarted(): void }) {
                   <>
                     <input
                       className="input"
-                      aria-label="直播流地址"
-                      placeholder="https://…/live.flv 或 .m3u8 地址"
+                      aria-label="直播间链接"
+                      placeholder="粘贴直播间链接，例如 https://live.douyin.com/…，分享口令也可以"
                       value={url}
                       onChange={(event) => setUrl(event.target.value)}
                     />
                     <span className="help secondary small">
-                      需要直播流的直接地址（flv、m3u8、rtmp），直播间网页地址不能直接使用。实验功能，不同平台的地址需要逐个验证。
+                      抖音、快手、B 站、斗鱼、虎牙等平台的网页直播间都可以：程序在后台打开直播间取声音，不用开着浏览器，
+                      电脑上的其他声音也不会混进来。打开需要几秒到二十几秒。需要登录才能看的直播间暂不支持，可改用“系统声音”。
+                      也可以直接填 flv、m3u8、rtmp 直播流地址。
                     </span>
                   </>
                 )}
@@ -378,7 +381,7 @@ function Setup({ onStarted }: { onStarted(): void }) {
             <div className="row">
               <button className="btn primary large" type="button" disabled={!canStart} onClick={start}>
                 {starting ? <LoaderCircle size={17} className="spin" /> : <Play size={17} />}
-                {starting ? "正在启动……" : "开始盯播"}
+                {starting ? (kind === "url" ? "正在打开直播间……" : "正在启动……") : "开始盯播"}
               </button>
               {sourceProblem && devices !== null && <span className="muted small">{sourceProblem}</span>}
             </div>

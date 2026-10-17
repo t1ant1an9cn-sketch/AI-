@@ -35,7 +35,7 @@
 | `analysis/report.py` | 句子、证据、指标、问题、提醒、窗口报告等数据结构（Pydantic），接口、数据库和界面共用。 |
 | `analysis/llm.py` | 大模型审核：拼提示词、调用兼容 OpenAI 的接口、解析结果、核对引文、过滤“识别错字”类问题。 |
 | `voicedetect/asr/` | 语音识别。`base.py` 定义统一接口；`sensevoice.py` 本地识别；`xfyun.py` 讯飞实时转写；`models.py` 模型下载、校验和导入。 |
-| `voicedetect/audio/` | 音频来源，统一输出 16 kHz 单声道 float32。`devices.py` 麦克风和系统声音（soundcard）；`files.py` 文件和直播流（PyAV）；`recording.py` 把实时盯播的声音存成 WAV。 |
+| `voicedetect/audio/` | 音频来源，统一输出 16 kHz 单声道 float32。`devices.py` 麦克风和系统声音（soundcard）；`files.py` 文件和直播流（PyAV）；`room.py` 直播间链接；`browser.py` 后台无界面浏览器（Edge/Chrome，DevTools 协议）；`recording.py` 把实时盯播的声音存成 WAV。 |
 | `voicedetect/monitor/` | `session.py` 一场盯播的编排；`manager.py` 按设置创建来源、识别引擎和审核器，同一时间只允许一场；`bus.py` 把后台线程的事件转给各个 WebSocket 连接。 |
 | `voicedetect/storage.py` | SQLite 存储（SQLAlchemy）。 |
 | `voicedetect/config.py` | 数据目录和应用设置；接口返回设置时遮罩密钥。 |
@@ -78,6 +78,12 @@ WebSocket 事件类型：`hello`、`state`、`level`（输入电平）、`partia
 
 **实时来源积压时丢最旧的音频，文件来源不丢。** 声卡和直播流不会等人，识别跟不上时队列会积压。实时来源丢弃最旧的音频块，用等长静音补上以保持时间轴不变，并提醒用户这段没有分析；文件来源则让采集等待，保证不漏。
 
+**直播间链接靠网页自己的播放器，不对接各平台接口。** 各平台取直播流的接口经常改，还要签名，逐个对接维护不过来。现在的做法是：用电脑上的 Edge 或 Chrome（无界面模式、临时资料目录）打开直播间，网页播放器自己会去取流。
+- 播放器请求了 flv/m3u8（抖音、快手、B 站、斗鱼）：记下最初请求的地址（跳转后的地址常常只能用一次）和 Referer、User-Agent，关掉浏览器，由 PyAV 直接拉流。CDN 会校验这两个请求头。拉流和浏览器一样走系统代理，否则开着代理软件时，有的 CDN 节点只有经代理才连得上。
+- 没有这类地址（虎牙走 P2P 和 WebRTC）：浏览器继续播放，网页加载前注入的脚本把 `<video>`/`<audio>`（只取 MediaStream 和 blob: 来源）以及网页接到扬声器上的 Web Audio 节点汇到一个 16 kHz 的 AudioContext，约每 0.26 秒经 CDP 绑定把 PCM 送回。网页一时没声音就补静音，保持时间轴，让“没有收到声音”的提醒照常工作。后台浏览器的网页可能被判为不可见（新资料目录会弹出 Edge 的同步确认页），有的播放器会因此静音，所以启动时关掉同步和后台降速，脚本里也让网页始终以为自己在前台。
+- 打开直播间放在建场次之前（几秒到二十几秒），打不开就直接报错，不留下一场空记录。断流时先重连原地址，不行再重新打开网页拿新地址，都失败就提醒“直播可能已经结束”并正常收尾。来源发现的这些情况通过 `take_notices()` 变成系统提醒。
+- 用的是系统自带的浏览器，打包成 exe 也不需要额外安装；没有浏览器、需要登录或没有网页版的直播，用“系统声音”。
+
 **提醒去重。** 窗口分析的问题只在第一次出现时提醒，持续存在不重复，消失后再出现才再提醒；违规和冷场在发生时提醒一次；大模型的问题按“同一句原话”或“同一类别”去重。
 
 **本地优先。** 默认的识别引擎在本机运行；讯飞和大模型都是可选的云服务。数据全部存在本机 SQLite，场次里保存开播时话术框架的完整副本，之后修改框架不影响历史记录。
@@ -109,6 +115,7 @@ WebSocket 事件类型：`hello`、`state`、`level`（输入电平）、`partia
 - `tests/test_session.py`：用脚本识别器和合成音频块测试实时会话的调度、积压丢弃、冷场与无信号提醒、去重、大模型审核接入、录音（含被丢弃的音频、录音失败不影响盯播）和快照恢复。
 - `tests/test_recording.py`：WAV 在录音进行中就能读出完整长度；场次 ID 不能拼出目录外的路径。
 - `tests/test_api.py`：HTTP 接口和 WebSocket 的完整开播流程、鉴权和输入校验；实时来源会录音、文件不录、录音地址的令牌和 Range 请求、删除场次时删除录音。
+- `tests/test_room.py`：本机起一个模拟直播间网站，用真实的 Edge/Chrome 打开：fetch flv 的网页走直接拉流（CDN 要求 Referer，断开后自动重连），Web Audio 和 `<audio>` 出声的网页走从网页取声音（被挤到后台也不静音），没开播的网页给出提示；没有浏览器时跳过这几项。
 - `tests/test_xfyun.py`：用本地 WebSocket 服务器模拟讯飞协议（签名用官方文档示例核对）。
 - `tests/test_llm.py`：用模拟的 HTTP 服务测试提示词、结果解析和错误提示。
 - `tests/test_sensevoice.py`：用真实模型跑演示音频，检查能抓到预设的违规词、冷场和漏讲（未下载模型时跳过）。

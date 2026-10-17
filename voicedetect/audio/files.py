@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import time
+from urllib.parse import urlsplit
 
 import numpy as np
 
@@ -21,15 +22,45 @@ def is_stream_url(location: str) -> bool:
     return location.lower().startswith(STREAM_PREFIXES)
 
 
+def system_proxy(url: str) -> str | None:
+    """这个地址按系统设置该走的 HTTP 代理（没有或在例外名单里时返回 None）。
+
+    浏览器默认走系统代理，拉流也走同一条路：开着代理软件时，有的 CDN 节点只有经代理才连得上。
+    FFmpeg 只支持 http:// 代理，https 地址会经它建立隧道。
+    """
+    import urllib.request
+
+    parts = urlsplit(url)
+    if parts.scheme.lower() not in ("http", "https"):
+        return None
+    proxies = urllib.request.getproxies()  # 先看环境变量，Windows 上再看系统代理设置
+    proxy = proxies.get(parts.scheme.lower()) or proxies.get("http")
+    if not proxy or not proxy.lower().startswith("http://"):
+        return None
+    if urllib.request.proxy_bypass(parts.hostname or ""):
+        return None
+    return proxy
+
+
 class MediaSource:
     """解码文件或流的第一条音轨，输出 16 kHz 单声道 float32。"""
 
-    def __init__(self, location: str | Path, *, realtime: bool = False, label: str = "") -> None:
+    def __init__(
+        self,
+        location: str | Path,
+        *,
+        realtime: bool = False,
+        label: str = "",
+        headers: dict[str, str] | None = None,
+        timeout: float = 15.0,
+    ) -> None:
         self.location = str(location)
         self.stream = is_stream_url(self.location)
         self.live = self.stream
         self.realtime = realtime and not self.stream  # 流本身就按实时到达，不必再等
         self.label = label or (f"直播流：{self.location}" if self.stream else f"音频文件：{Path(self.location).name}")
+        self.headers = headers or {}  # 拉流时带上的请求头；不少直播 CDN 要求和网页播放器一致的 Referer、User-Agent
+        self.timeout = timeout
         self.duration: float | None = None
         self._container = None
         self._frames = None
@@ -42,9 +73,18 @@ class MediaSource:
     def open(self) -> None:
         import av
 
-        options = {"rw_timeout": "15000000", "reconnect": "1", "reconnect_streamed": "1"} if self.stream else {}
+        options = {}
+        if self.stream:
+            options = {"rw_timeout": str(int(self.timeout * 1_000_000)), "reconnect": "1", "reconnect_streamed": "1"}
+            if proxy := system_proxy(self.location):
+                options["http_proxy"] = proxy
+            headers = dict(self.headers)
+            if agent := headers.pop("User-Agent", ""):
+                options["user_agent"] = agent  # User-Agent 用 FFmpeg 自己的选项，其余放进自定义请求头
+            if headers:
+                options["headers"] = "".join(f"{name}: {value}\r\n" for name, value in headers.items())
         try:
-            self._container = av.open(self.location, options=options, timeout=(15, 15))
+            self._container = av.open(self.location, options=options, timeout=(self.timeout, self.timeout))
         except FileNotFoundError:
             raise FileNotFoundError(f"找不到文件：{self.location}") from None
         except av.FFmpegError as exc:

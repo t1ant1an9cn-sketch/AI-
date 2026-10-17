@@ -25,7 +25,7 @@ uv run voicedetect models download|status|import <dir>
 ```
 
 - `analyze` 和桌面程序都会把场次写入数据目录。测试或试跑时设 `VOICEDETECT_HOME` 指到临时目录，避免污染用户的历史记录；`VOICEDETECT_MODELS` 可单独指向已下载的模型。
-- `tests/conftest.py` 自动把每个测试的数据目录换成临时目录，模型目录沿用本机已下载的那份。`test_sensevoice.py` 在没有模型时自动跳过。
+- `tests/conftest.py` 自动把每个测试的数据目录换成临时目录，模型目录沿用本机已下载的那份。`test_sensevoice.py` 在没有模型时自动跳过；`test_room.py` 的浏览器测试在没有 Edge/Chrome 时跳过，跑一遍约 35 秒。
 
 ## 架构要点
 
@@ -34,6 +34,7 @@ uv run voicedetect models download|status|import <dir>
 - **识别接口**（`asr/base.py`）：`accept(samples) -> [AsrEvent]`、`flush()`、`speech_since`；事件分 `partial` 和 `final`，`final` 文字为空表示有人说话但没认出字（只用于停顿和说话时间）。
 - **事件**：后台线程经 `EventBus` 推给 WebSocket；界面用 `frontend/src/live.ts` 的 `applyEvent` 合并，重连时先收 `hello` 快照（`MonitorSession.snapshot()`）。新增事件或快照字段时，同时改 `frontend/src/types.ts`。
 - **数据模型**：`analysis/report.py` 和 `frameworks.py` 的 Pydantic 模型是接口、数据库 JSON 和前端类型的共同来源。数据库升级在 `storage.py` 的 `_MIGRATIONS` 追加函数并提高 `SCHEMA_VERSION`。
+- **直播间链接**（`audio/room.py` + `audio/browser.py`）：不对接各平台接口，用本机 Edge/Chrome 无界面打开网页，抓播放器请求的 flv/m3u8 后交给 PyAV 拉流，抓不到就从网页里取声音。`prepare()` 在建场次之前调用；来源发现的断流、重连经 `take_notices()` 变成系统提醒。拉流按系统代理走（开着代理软件时不走代理，抖音的部分 CDN 节点连不上）。
 - **录音**：设置开启后只录实时来源，采集线程入队前写 `数据目录/recordings/<场次ID>.wav`，与盯播同一时间轴（含被丢弃的音频）。不进数据库，按文件是否存在判断；接口按场次 ID 拼路径，ID 必须过 `config.recording_path` 的校验。
 
 ## 测试约定

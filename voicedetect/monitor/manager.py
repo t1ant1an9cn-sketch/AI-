@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from importlib.resources import files
+from pathlib import Path
 import threading
 from typing import Any, Literal, Protocol
 import uuid
@@ -58,10 +59,24 @@ def build_source(spec: SourceSpec) -> AudioSource:
             raise ValueError("请选择要分析的音频文件")
         return MediaSource(spec.path, realtime=spec.realtime)
     if spec.kind == "url":
-        if not spec.url:
-            raise ValueError("请填写直播流地址")
-        return MediaSource(spec.url)
+        return open_location(spec.url, realtime=False)
     return MediaSource(demo_audio_path(), realtime=spec.realtime, label=DEMO_LABEL)
+
+
+def open_location(location: str, *, realtime: bool) -> AudioSource:
+    """直播间网页、直播流地址或本机文件。直播间网页要先 prepare() 才能确定怎么取声音。"""
+    from ..audio.files import MediaSource
+    from ..audio.room import RoomSource, extract_url, is_room_page
+
+    if not location.strip():
+        raise ValueError("请填写直播间链接或直播流地址")
+    if "://" not in location and Path(location).is_file():
+        return MediaSource(location, realtime=realtime)
+    if is_room_page(location):
+        return RoomSource(location)
+    if "://" in location:
+        location = extract_url(location)
+    return MediaSource(location, realtime=realtime)
 
 
 def engine_label(settings: AppSettings) -> str:
@@ -133,10 +148,9 @@ class SessionManager:
         if interval > window:
             raise ValueError("分析间隔不能大于分析窗口")
         source = self._make_source(request.source)
-        title = request.title.strip() or source.label
-        return self._launch(
+        return self._launch_prepared(
             session_id=uuid.uuid4().hex[:12],
-            title=title,
+            title=request.title.strip(),
             framework=framework,
             source=source,
             settings=settings,
@@ -157,13 +171,11 @@ class SessionManager:
         options: SessionOptions,
         listener: Callable[[dict[str, Any]], None] | None = None,
     ) -> MonitorSession:
-        """命令行分析文件或直播流时使用，框架可以不在数据库里。"""
-        from ..audio.files import MediaSource, is_stream_url
-
-        source = MediaSource(location, realtime=realtime)
+        """命令行分析文件、直播流或直播间时使用，框架可以不在数据库里。"""
+        source = open_location(location, realtime=realtime)
         settings = self._settings()
         options.review_every = settings.llm.review_every
-        return self._launch(
+        return self._launch_prepared(
             session_id=session_id,
             title=title,
             framework=framework,
@@ -171,8 +183,26 @@ class SessionManager:
             settings=settings,
             options=options,
             listener=listener,
-            partials=is_stream_url(location) or realtime,
+            partials=source.live or realtime,
         )
+
+    def _launch_prepared(
+        self, *, source: AudioSource, title: str, settings: AppSettings, **kwargs: Any
+    ) -> MonitorSession:
+        """直播间链接要先打开网页、找到声音（几秒到二十几秒）。放在建场次之前：打不开就直接报错，不留空记录。"""
+        prepare = getattr(source, "prepare", None)
+        try:
+            if prepare is not None:
+                with self._lock:
+                    if self.current is not None and not self.current.finished:
+                        raise SessionBusy("已经有一场盯播在进行，请先停止")
+                # 先确认识别引擎可用，免得等直播间打开了才提示缺模型或缺账号
+                self._make_recognizer(settings, partials=False)
+                prepare()
+            return self._launch(source=source, title=title or source.label, settings=settings, **kwargs)
+        except BaseException:
+            source.close()
+            raise
 
     def _launch(
         self,

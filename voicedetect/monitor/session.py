@@ -1,7 +1,7 @@
 """一场直播的实时盯播会话：采集 → 识别 → 即时检查 → 定时窗口分析 → 提醒。
 
 两个后台线程：
-- 采集线程只读音频，放进有界队列；开了录音时顺便写入录音文件。实时来源（声卡、直播流）在识别
+- 采集线程只读音频，放进有界队列；开了录音时顺便写入录音文件。实时来源（声卡、直播流、直播间）在识别
   跟不上时丢弃最旧的音频，并补上等长静音保持时间轴不变，同时提醒用户；文件来源则等待识别，不丢数据。
 - 处理线程加载识别引擎、逐块识别，并按“音频时间”调度窗口分析：每 interval 秒分析过去 window 秒。
   违规表达和冷场在每句话、每块音频上即时检查，不等窗口。
@@ -155,6 +155,9 @@ class MonitorSession:
                 self._set_state("stopping")
         self._stop.set()
         self._ready.set()
+        interrupt = getattr(self.source, "interrupt", None)
+        if interrupt is not None:  # 直播间来源可能正在等待重连，让它马上返回
+            interrupt()
 
     def wait(self, timeout: float | None = None) -> bool:
         deadline = None if timeout is None else time.monotonic() + timeout
@@ -187,8 +190,11 @@ class MonitorSession:
                 return
             self.source.open()
             self._open_recording()
+            take_notices = getattr(self.source, "take_notices", None)  # 来源自己发现的情况，例如直播流断开后重连
             while not self._stop.is_set():
                 block = self.source.read()
+                for notice in take_notices() if take_notices else ():
+                    self._system_alert(*notice)
                 if block is None:
                     break
                 if block.size:
