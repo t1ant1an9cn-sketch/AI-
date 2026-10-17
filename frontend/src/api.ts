@@ -3,6 +3,7 @@ import type {
   Framework,
   FrameworkSummary,
   Info,
+  LoginStatus,
   ModelStatus,
   SessionDetail,
   SessionSummary,
@@ -97,6 +98,10 @@ export const api = {
   downloadModel: () => json<ModelStatus>("POST", "/api/models/download"),
   cancelDownload: () => json<ModelStatus>("POST", "/api/models/cancel"),
   importModel: (folder: string) => json<ModelStatus>("POST", "/api/models/import", { folder }),
+
+  logins: () => json<LoginStatus>("GET", "/api/logins"),
+  openLogin: (url: string) => json<LoginStatus>("POST", "/api/logins/open", { url }),
+  clearLogins: () => json<LoginStatus>("DELETE", "/api/logins"),
 
   session: () => json<Snapshot | null>("GET", "/api/session"),
   start: (request: StartRequest) => json<Snapshot>("POST", "/api/session/start", request),

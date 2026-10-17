@@ -7,6 +7,7 @@ import {
   History as HistoryIcon,
   Link,
   LoaderCircle,
+  LogIn,
   Mic,
   Play,
   Plus,
@@ -23,10 +24,19 @@ import { RateChart } from "../components/RateChart";
 import { Transcript, TranscriptLegend } from "../components/Transcript";
 import { Empty, LevelBars, Meter, Notice, Status } from "../components/ui";
 import { useApp } from "../context";
-import { clock, megabytes, span } from "../format";
+import { clock, dateTime, megabytes, span } from "../format";
 import { clearPrefill, readPrefill } from "../prefill";
 import { unlockSound } from "../sound";
-import type { Alert, Device, FrameworkSummary, ModelStatus, Snapshot, SourceSpec, WindowReport } from "../types";
+import type {
+  Alert,
+  Device,
+  FrameworkSummary,
+  LoginStatus,
+  ModelStatus,
+  Snapshot,
+  SourceSpec,
+  WindowReport,
+} from "../types";
 
 type SourceKind = "loopback" | "microphone" | "file" | "url" | "demo";
 
@@ -336,9 +346,10 @@ function Setup({ onStarted }: { onStarted(): void }) {
                     onChange={(event) => setUrl(event.target.value)}
                   />
                   <span className="help">
-                    抖音、快手、B 站、斗鱼、虎牙等平台的网页直播间都可以，打开需要几秒到二十几秒。需要登录才能看的直播间暂不支持，请改用“系统声音”。也可以直接填
-                    flv、m3u8、rtmp 直播流地址。
+                    抖音、快手、B 站、斗鱼、虎牙等平台的网页直播间都可以，打开需要几秒到二十几秒。也可以直接填 flv、m3u8、rtmp
+                    直播流地址。
                   </span>
+                  <LoginRow url={url} />
                 </>
               )}
               {kind === "demo" && (
@@ -516,6 +527,60 @@ function Setup({ onStarted }: { onStarted(): void }) {
         </aside>
       </div>
     </div>
+  );
+}
+
+// 登录窗口只能打开网页，rtmp 这类直播流地址不行
+const PAGE_LINK = /https?:\/\/\S+|^[a-z0-9-]+(\.[a-z0-9-]+)+\//i;
+
+/** 要登录才能看的直播间：弹出浏览器窗口让用户登录一次，之后打开直播间时自动带上登录信息。 */
+function LoginRow({ url }: { url: string }) {
+  const { live } = useApp();
+  const [status, setStatus] = useState<LoginStatus | null>(null);
+  const [opening, setOpening] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api.logins().then(setStatus).catch(() => undefined);
+  }, []);
+
+  const current = live.logins ?? status;
+  const page = PAGE_LINK.test(url.trim());
+  const open = async () => {
+    setOpening(true);
+    setError("");
+    try {
+      setStatus(await api.openLogin(url.trim()));
+    } catch (reason) {
+      setError((reason as Error).message);
+    } finally {
+      setOpening(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="row wrap">
+        <button
+          className="btn small"
+          type="button"
+          onClick={open}
+          disabled={!page || opening}
+          title={page ? "在弹出的浏览器窗口里打开这个直播间，登录后关掉窗口" : "先粘贴直播间链接"}
+        >
+          {opening ? <LoaderCircle size={14} className="spin" /> : <LogIn size={14} />}
+          登录平台账号
+        </button>
+        <span className="help grow">
+          {current?.open
+            ? "登录窗口已打开：在窗口里登录（一般是用手机 App 扫码），能看到直播画面后关掉窗口，再开始盯播。"
+            : current?.saved_at
+              ? `已保存登录信息（${dateTime(new Date(current.saved_at * 1000).toISOString())}），打开直播间时会自动带上。`
+              : "要登录才能看的直播间（例如淘宝直播），先点这里，在弹出的窗口里登录一次。"}
+        </span>
+      </div>
+      {error && <Notice tone="critical">{error}</Notice>}
+    </>
   );
 }
 

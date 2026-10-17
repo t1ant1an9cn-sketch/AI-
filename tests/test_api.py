@@ -7,6 +7,7 @@ from starlette.websockets import WebSocketDisconnect
 from tests.fakes import BlockSource, ScriptedRecognizer
 from voicedetect.api import create_app
 from voicedetect.app import Services
+from voicedetect.audio.logins import load_cookies, save_cookies
 from voicedetect.config import SECRET_MASK
 from voicedetect.monitor.manager import SessionManager
 
@@ -233,6 +234,17 @@ def test_files_are_not_recorded_again(client, services):
     session_id = run_session(client, services)  # 来源是文件（非实时）
     assert client.get(f"/api/sessions/{session_id}").json()["recording"] is None
     assert client.get(f"/api/sessions/{session_id}/audio").status_code == 404
+
+
+def test_login_status_and_clearing(client):
+    assert client.get("/api/logins").json() == {"open": False, "saved_at": None}
+    for text in ("没有链接", "rtmp://example.com/live/room"):
+        response = client.post("/api/logins/open", json={"url": text})
+        assert (response.status_code, response.json()["detail"]) == (400, "请先粘贴直播间的网页链接")
+    save_cookies([{"name": "sessionid", "value": "1", "domain": ".douyin.com", "path": "/"}])
+    assert client.get("/api/logins").json()["saved_at"] > 0
+    assert client.delete("/api/logins").json() == {"open": False, "saved_at": None}
+    assert load_cookies() == []
 
 
 def test_recording_ids_cannot_point_outside_the_folder(client):

@@ -35,7 +35,7 @@
 | `analysis/report.py` | 句子、证据、指标、问题、提醒、窗口报告等数据结构（Pydantic），接口、数据库和界面共用。 |
 | `analysis/llm.py` | 大模型审核：拼提示词、调用兼容 OpenAI 的接口、解析结果、核对引文、过滤“识别错字”类问题。 |
 | `voicedetect/asr/` | 语音识别。`base.py` 定义统一接口；`sensevoice.py` 本地识别；`xfyun.py` 讯飞实时转写；`models.py` 模型下载、校验和导入。 |
-| `voicedetect/audio/` | 音频来源，统一输出 16 kHz 单声道 float32。`devices.py` 麦克风和系统声音（soundcard）；`files.py` 文件和直播流（PyAV）；`room.py` 直播间链接；`browser.py` 后台无界面浏览器（Edge/Chrome，DevTools 协议）；`recording.py` 把实时盯播的声音存成 WAV。 |
+| `voicedetect/audio/` | 音频来源，统一输出 16 kHz 单声道 float32。`devices.py` 麦克风和系统声音（soundcard）；`files.py` 文件和直播流（PyAV）；`room.py` 直播间链接；`browser.py` 后台无界面浏览器（Edge/Chrome，DevTools 协议）；`logins.py` 直播平台登录窗口和保存下来的 Cookie；`recording.py` 把实时盯播的声音存成 WAV。 |
 | `voicedetect/monitor/` | `session.py` 一场盯播的编排；`manager.py` 按设置创建来源、识别引擎和审核器，同一时间只允许一场；`bus.py` 把后台线程的事件转给各个 WebSocket 连接。 |
 | `voicedetect/storage.py` | SQLite 存储（SQLAlchemy）。 |
 | `voicedetect/config.py` | 数据目录和应用设置；接口返回设置时遮罩密钥。 |
@@ -57,7 +57,7 @@
 6. 停止或音频结束时，补一份最后不满一个周期的窗口报告，再对全场做一次总结。
 7. 句子、报告、提醒逐条写入 SQLite，同时通过事件总线推给界面。界面断线重连时先收到 `hello`（当前场次的完整快照），再接着收增量事件。
 
-WebSocket 事件类型：`hello`、`state`、`level`（输入电平）、`partial`、`segment`（定稿句子和高亮）、`report`、`summary`、`alert`、`llm`（审核结果）、`health`（积压、丢弃、有无信号）、`model`（模型下载进度）。
+WebSocket 事件类型：`hello`、`state`、`level`（输入电平）、`partial`、`segment`（定稿句子和高亮）、`report`、`summary`、`alert`、`llm`（审核结果）、`health`（积压、丢弃、有无信号）、`model`（模型下载进度）、`logins`（登录窗口开没开、登录信息何时保存）。
 
 ## 关键设计取舍
 
@@ -81,6 +81,7 @@ WebSocket 事件类型：`hello`、`state`、`level`（输入电平）、`partia
 **直播间链接靠网页自己的播放器，不对接各平台接口。** 各平台取直播流的接口经常改，还要签名，逐个对接维护不过来。现在的做法是：用电脑上的 Edge 或 Chrome（无界面模式、临时资料目录）打开直播间，网页播放器自己会去取流。
 - 播放器请求了 flv/m3u8（抖音、快手、B 站、斗鱼）：记下最初请求的地址（跳转后的地址常常只能用一次）和 Referer、User-Agent，关掉浏览器，由 PyAV 直接拉流。CDN 会校验这两个请求头。拉流和浏览器一样走系统代理，否则开着代理软件时，有的 CDN 节点只有经代理才连得上。
 - 没有这类地址（虎牙走 P2P 和 WebRTC）：浏览器继续播放，网页加载前注入的脚本把 `<video>`/`<audio>`（只取 MediaStream 和 blob: 来源）以及网页接到扬声器上的 Web Audio 节点汇到一个 16 kHz 的 AudioContext，约每 0.26 秒经 CDP 绑定把 PCM 送回。网页一时没声音就补静音，保持时间轴，让“没有收到声音”的提醒照常工作。后台浏览器的网页可能被判为不可见（新资料目录会弹出 Edge 的同步确认页），有的播放器会因此静音，所以启动时关掉同步和后台降速，脚本里也让网页始终以为自己在前台。
+- 要登录才能看的直播间（例如淘宝直播）：用户点“登录平台账号”，程序用一个固定的资料目录打开**有界面**的浏览器窗口，用户在里面登录。窗口开着时每 2 秒经调试协议读一次全部 Cookie 存到本机；后台浏览器打开直播间前先放入这些 Cookie。不直接让后台浏览器用登录窗口的资料目录，是因为：同一个资料目录同时只能被一个浏览器进程使用，登录窗口开着就会冲突；很多网站的登录 Cookie 是会话 Cookie，浏览器一关就从资料目录里消失。所以 Cookie 由程序自己保存（Windows 上用 DPAPI 加密），再次打开登录窗口时也先放回去，才能保持登录。
 - 打开直播间放在建场次之前（几秒到二十几秒），打不开就直接报错，不留下一场空记录。断流时先重连原地址，不行再重新打开网页拿新地址，都失败就提醒“直播可能已经结束”并正常收尾。来源发现的这些情况通过 `take_notices()` 变成系统提醒。
 - 用的是系统自带的浏览器，打包成 exe 也不需要额外安装；没有浏览器、需要登录或没有网页版的直播，用“系统声音”。
 
@@ -109,6 +110,8 @@ WebSocket 事件类型：`hello`、`state`、`level`（输入电平）、`partia
 
 录音不进数据库：存在数据目录的 `recordings/<场次ID>.wav`（16 kHz 单声道 16 位，约每小时 115 MB），有没有录音看这个文件在不在；删除场次时一起删除。
 
+直播平台的登录信息也不进数据库：`logins/cookies.bin` 是登录窗口里的全部 Cookie（JSON，Windows 上经 DPAPI 加密），`logins/profile` 是登录窗口的浏览器资料目录；“清除登录信息”删除整个 `logins` 文件夹。
+
 ## 测试
 
 - `tests/test_text.py`、`test_matcher.py`、`test_window.py`：数字读法、同音匹配、每条分析规则的预期结果。
@@ -116,6 +119,7 @@ WebSocket 事件类型：`hello`、`state`、`level`（输入电平）、`partia
 - `tests/test_recording.py`：WAV 在录音进行中就能读出完整长度；场次 ID 不能拼出目录外的路径。
 - `tests/test_api.py`：HTTP 接口和 WebSocket 的完整开播流程、鉴权和输入校验；实时来源会录音、文件不录、录音地址的令牌和 Range 请求、删除场次时删除录音。
 - `tests/test_room.py`：本机起一个模拟直播间网站，用真实的 Edge/Chrome 打开：fetch flv 的网页走直接拉流（CDN 要求 Referer，断开后自动重连），Web Audio 和 `<audio>` 出声的网页走从网页取声音（被挤到后台也不静音），没开播的网页给出提示；没有浏览器时跳过这几项。
+- `tests/test_logins.py`：模拟网站的直播间要带着登录页发的会话 Cookie 才有直播：未登录时打不开，在登录窗口（测试时用无界面模式）登录一次后能直接拉流；重开登录窗口仍是登录状态；清除后 Cookie 和资料目录都删掉；Cookie 文件在 Windows 上不是明文。
 - `tests/test_xfyun.py`：用本地 WebSocket 服务器模拟讯飞协议（签名用官方文档示例核对）。
 - `tests/test_llm.py`：用模拟的 HTTP 服务测试提示词、结果解析和错误提示。
 - `tests/test_sensevoice.py`：用真实模型跑演示音频，检查能抓到预设的违规词、冷场和漏讲（未下载模型时跳过）。

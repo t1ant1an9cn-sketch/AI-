@@ -262,6 +262,11 @@ export interface ModelStatus {
   error: string;
 }
 
+export interface LoginStatus {
+  open: boolean; // 登录窗口是否开着
+  saved_at: number | null; // 登录信息最后保存的时间（Unix 秒）；没有保存过为 null
+}
+
 export interface Device {
   id: string;
   name: string;
@@ -334,4 +339,5 @@ export type LiveEvent =
   | { type: "alert"; session_id: string; alert: Alert }
   | { type: "llm"; session_id: string; report_id: number | null; review: LlmReview }
   | ({ type: "health"; session_id: string } & Health)
-  | ({ type: "model" } & ModelStatus);
+  | ({ type: "model" } & ModelStatus)
+  | ({ type: "logins" } & LoginStatus);

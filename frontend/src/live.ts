@@ -1,13 +1,14 @@
-import type { LiveEvent, ModelStatus, Snapshot } from "./types";
+import type { LiveEvent, LoginStatus, ModelStatus, Snapshot } from "./types";
 
 export interface LiveState {
   connected: boolean;
   session: Snapshot | null;
   level: number; // 输入电平 dBFS
   model: ModelStatus | null; // 模型下载进度（来自 model 事件）
+  logins: LoginStatus | null; // 登录窗口开没开、登录信息何时保存（来自 logins 事件）
 }
 
-export const initialLive: LiveState = { connected: false, session: null, level: -120, model: null };
+export const initialLive: LiveState = { connected: false, session: null, level: -120, model: null, logins: null };
 
 const MAX_SEGMENTS = 400;
 const MAX_ALERTS = 200;
@@ -23,6 +24,10 @@ export function applyEvent(state: LiveState, event: LiveEvent): LiveState {
   if (event.type === "model") {
     const { type: _type, ...model } = event;
     return { ...state, model };
+  }
+  if (event.type === "logins") {
+    const { type: _type, ...logins } = event;
+    return { ...state, logins };
   }
   const session = state.session;
   if (!session || session.session_id !== event.session_id) return state;

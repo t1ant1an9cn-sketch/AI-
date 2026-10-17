@@ -1,4 +1,4 @@
-"""把各部分组装起来：存储、设置、事件总线、会话管理和模型下载。桌面窗口、命令行和接口共用一份。"""
+"""把各部分组装起来：存储、设置、事件总线、会话管理、模型下载和直播平台登录窗口。桌面窗口、命令行和接口共用一份。"""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import threading
 from typing import Any
 
 from .asr.models import SENSEVOICE, DownloadCancelled, ModelStore
+from .audio.logins import LoginWindow
 from .config import AppSettings, database_path, models_dir
 from .frameworks import builtin_templates
 from .monitor.bus import EventBus
@@ -90,6 +91,7 @@ class Services:
     bus: EventBus
     monitor: SessionManager
     downloads: ModelDownloads
+    logins: LoginWindow
 
     @classmethod
     def create(cls, db_path: Path | None = None) -> Services:
@@ -106,6 +108,7 @@ class Services:
             bus=bus,
             monitor=SessionManager(storage=storage, bus=bus, settings=settings),
             downloads=ModelDownloads(bus, settings),
+            logins=LoginWindow(on_change=lambda status: bus.publish({"type": "logins", **status})),
         )
 
     def settings(self) -> AppSettings:
@@ -118,4 +121,5 @@ class Services:
     def close(self) -> None:
         self.monitor.shutdown()
         self.downloads.cancel()
+        self.logins.close()
         self.storage.close()

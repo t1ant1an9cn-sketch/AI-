@@ -4,6 +4,7 @@
 从网页里取解码后的声音。Windows 10/11 自带 Edge，打包成 exe 后也不用另外安装浏览器。
 
 每次使用都新建一个临时的浏览器资料目录，用完删除，不碰用户自己的浏览器、登录状态和历史记录。
+要登录才能看的直播间，由 logins.py 在打开网页前放入用户在登录窗口里登录后存下的 Cookie。
 """
 
 from __future__ import annotations
@@ -62,6 +63,80 @@ def find_browser() -> Path | None:
     return next((path for path in candidates if path.is_file()), None)
 
 
+COMMON_FLAGS = [
+    "--no-first-run",
+    "--no-default-browser-check",
+    # 新资料目录会弹出 Edge 的同步确认页并抢到前台，直播间网页随之变成“不可见”，有的播放器会静音
+    "--disable-sync",
+]
+HEADLESS_FLAGS = [
+    "--headless=new",
+    "--mute-audio",  # 不从扬声器出声；网页里照常解码，取声音不受影响
+    "--autoplay-policy=no-user-gesture-required",
+    *COMMON_FLAGS,
+    "--disable-background-timer-throttling",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
+    "--disable-component-update",
+    "--window-size=1280,800",
+]
+
+
+def launch(
+    program: Path, profile: Path, flags: list[str], *, timeout: float, name: str = "后台浏览器"
+) -> tuple[subprocess.Popen, int]:
+    """用指定的资料目录启动浏览器，开启随机端口的调试接口，返回进程和端口。flags 的最后一项是要打开的网址。"""
+    (profile / "DevToolsActivePort").unlink(missing_ok=True)  # 上次异常退出留下的旧端口
+    process = subprocess.Popen(
+        [str(program), "--remote-debugging-port=0", f"--user-data-dir={profile}", *flags],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+    )
+    try:
+        return process, _wait_for_port(process, profile, timeout, name)
+    except BaseException:
+        stop_process(process)
+        raise
+
+
+def _wait_for_port(process: subprocess.Popen, profile: Path, timeout: float, name: str) -> int:
+    """浏览器用随机端口时，会把端口写进资料目录下的 DevToolsActivePort。"""
+    port_file = profile / "DevToolsActivePort"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise BrowserError(f"{name}启动后立即退出了（退出码 {process.returncode}）")
+        try:
+            lines = port_file.read_text(encoding="ascii").split()
+            if lines:
+                return int(lines[0])
+        except (OSError, ValueError):
+            pass
+        time.sleep(0.05)
+    raise BrowserError(f"{name}启动超时")
+
+
+def stop_process(process: subprocess.Popen) -> None:
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(5)
+
+
+def remove_profile(profile: Path) -> None:
+    # 浏览器的子进程退出得稍晚，资料目录里的文件可能还被占用一会儿
+    for _ in range(20):
+        shutil.rmtree(profile, ignore_errors=True)
+        if not profile.exists():
+            break
+        time.sleep(0.1)
+
+
 class HeadlessBrowser:
     """一个无界面浏览器进程和其中的一个标签页。用完必须 close()：结束进程并删除临时资料目录。
 
@@ -83,41 +158,18 @@ class HeadlessBrowser:
         self._send_lock = threading.Lock()
         self._next_id = 0
         self._closed = False
-        flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-        self._process = subprocess.Popen(
-            [
-                str(program),
-                "--headless=new",
-                "--remote-debugging-port=0",
-                f"--user-data-dir={self._profile}",
-                "--mute-audio",  # 不从扬声器出声；网页里照常解码，取声音不受影响
-                "--autoplay-policy=no-user-gesture-required",
-                "--no-first-run",
-                "--no-default-browser-check",
-                # 新资料目录会弹出 Edge 的同步确认页并抢到前台，直播间网页随之变成“不可见”，有的播放器会静音
-                "--disable-sync",
-                "--disable-background-timer-throttling",
-                "--disable-backgrounding-occluded-windows",
-                "--disable-renderer-backgrounding",
-                "--disable-component-update",
-                "--window-size=1280,800",
-                "about:blank",
-            ],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=flags,
-        )
+        self._process: subprocess.Popen | None = None
         with _running_lock:
             _running.add(self)
         try:
-            port = self._wait_for_port(start_timeout)
-            version = _http_json(port, "/json/version")
+            flags = [*HEADLESS_FLAGS, "about:blank"]
+            self._process, port = launch(program, self._profile, flags, timeout=start_timeout)
+            version = http_json(port, "/json/version")
             # 无界面模式的 User-Agent 带 HeadlessChrome，有的平台会因此不给播放
             self.user_agent: str = version.get("User-Agent", "").replace("HeadlessChrome", "Chrome")
             # 用启动时自带的那个标签页；另开一个的话，自带的那个可能跑到前台，把直播间挤到后台
-            pages = [item for item in _http_json(port, "/json/list") if item.get("type") == "page"]
-            target = pages[0] if pages else _http_json(port, "/json/new?about:blank", method="PUT")
+            pages = [item for item in http_json(port, "/json/list") if item.get("type") == "page"]
+            target = pages[0] if pages else http_json(port, "/json/new?about:blank", method="PUT")
             self._socket = self._connection.enter_context(
                 connect(target["webSocketDebuggerUrl"], max_size=None, open_timeout=10, close_timeout=2)
             )
@@ -160,7 +212,9 @@ class HeadlessBrowser:
 
     @property
     def alive(self) -> bool:
-        return not self._closed and self._process.poll() is None and self._reader.is_alive()
+        return (
+            not self._closed and self._process is not None and self._process.poll() is None and self._reader.is_alive()
+        )
 
     def _receive(self) -> None:
         try:
@@ -192,22 +246,6 @@ class HeadlessBrowser:
 
     # —— 进程 ——
 
-    def _wait_for_port(self, timeout: float) -> int:
-        """浏览器用随机端口时，会把端口写进资料目录下的 DevToolsActivePort。"""
-        port_file = self._profile / "DevToolsActivePort"
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if self._process.poll() is not None:
-                raise BrowserError(f"后台浏览器启动后立即退出了（退出码 {self._process.returncode}）")
-            try:
-                lines = port_file.read_text(encoding="ascii").split()
-                if lines:
-                    return int(lines[0])
-            except (OSError, ValueError):
-                pass
-            time.sleep(0.05)
-        raise BrowserError("后台浏览器启动超时")
-
     def close(self) -> None:
         if self._closed:
             return
@@ -216,26 +254,16 @@ class HeadlessBrowser:
             self._connection.close()
         except Exception:
             pass
-        if self._process.poll() is None:
-            self._process.terminate()
-            try:
-                self._process.wait(5)
-            except subprocess.TimeoutExpired:
-                self._process.kill()
-                self._process.wait(5)
+        if self._process is not None:
+            stop_process(self._process)
         with _running_lock:
             _running.discard(self)
-        # 浏览器的子进程退出得稍晚，资料目录里的文件可能还被占用一会儿
-        for _ in range(20):
-            shutil.rmtree(self._profile, ignore_errors=True)
-            if not self._profile.exists():
-                break
-            time.sleep(0.1)
+        remove_profile(self._profile)
 
 
-def _http_json(port: int, path: str, *, method: str = "GET") -> Any:
+def http_json(port: int, path: str, *, method: str = "GET", timeout: float = 10) -> Any:
     request = urllib.request.Request(f"http://127.0.0.1:{port}{path}", method=method)
-    with urllib.request.urlopen(request, timeout=10) as response:
+    with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read())
 
 

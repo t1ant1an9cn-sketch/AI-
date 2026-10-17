@@ -6,6 +6,7 @@
 2. 网页没有这类地址（例如虎牙走 P2P 和 WebRTC）：浏览器继续播放，从网页里取解码后的声音，
    包括 <video>/<audio> 播放的声音和网页用 Web Audio 播放的声音，在网页里统一转成 16 kHz 送回程序。
 两种都不行时给出明确提示，用户可以改用“系统声音”。
+要登录才能看的直播间：用户先在登录窗口里登录一次（logins.py），打开网页前放入存下的 Cookie。
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from ..asr.base import SAMPLE_RATE
 from .base import level_db
 from .browser import BrowserError, HeadlessBrowser
 from .files import BLOCK_SAMPLES, MediaSource
+from .logins import apply_cookies, load_cookies
 
 log = logging.getLogger(__name__)
 
@@ -73,7 +75,7 @@ PLATFORMS = {
 }
 NOT_FOUND = (
     "没有在这个直播间里找到正在播放的直播：可能还没开播、需要登录才能观看，或者这个平台的网页播放不了。"
-    "可以先在浏览器里打开直播间，音频来源改选“系统声音”。"
+    "要登录才能看的，点“登录平台账号”登录一次再试；也可以先在浏览器里打开直播间，音频来源改选“系统声音”。"
 )
 PAGE_LAG = 0.6  # 网页声音约每 0.26 秒送来一次；落后超过这么多还没有新数据就补静音
 PAGE_SILENT_RELOAD = 20.0  # 这么久没收到网页的声音就刷新网页
@@ -141,6 +143,7 @@ class RoomSource:
         resolve_timeout: float = 25.0,
         page_audio_after: float = 10.0,
         browser: Callable[[], HeadlessBrowser] = HeadlessBrowser,
+        cookies: Callable[[], list[dict]] = load_cookies,
     ) -> None:
         self.url = extract_url(url)
         self.platform = platform_name(self.url)
@@ -150,6 +153,7 @@ class RoomSource:
         self._resolve_timeout = resolve_timeout
         self._page_audio_after = page_audio_after  # 等这么久还没有直播流地址、网页已经在出声，就改为从网页取声音
         self._new_browser = browser
+        self._cookies = cookies  # 用户在登录窗口里登录后存下的 Cookie
         self._browser: HeadlessBrowser | None = None
         self._stream: MediaSource | None = None
         self._candidate: Candidate | None = None
@@ -213,6 +217,9 @@ class RoomSource:
         tried: set[str] = set()
         self._page_heard = 0.0
         try:
+            if cookies := self._cookies():
+                applied = apply_cookies(browser.call, cookies)
+                log.info("room %s: applied %d of %d saved login cookies", self.url, applied, len(cookies))
             self._watch(browser, candidates)
             started = time.monotonic()
             result = browser.call("Page.navigate", {"url": self.url}, timeout=30)

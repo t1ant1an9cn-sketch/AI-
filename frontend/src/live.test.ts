@@ -121,6 +121,12 @@ describe("applyEvent", () => {
     expect(state.session?.engine).toBe("SenseVoice（本地）"); // 事件没带引擎名时保留原值
   });
 
+  it("登录窗口状态与场次无关，没有场次时也会记下", () => {
+    const next = applyEvent(initialLive, { type: "logins", open: false, saved_at: 1760700000 });
+    expect(next.logins).toEqual({ open: false, saved_at: 1760700000 });
+    expect(next.session).toBeNull();
+  });
+
   it("转写只保留最近 400 句", () => {
     let state = withSession(snapshot());
     for (let index = 1; index <= 405; index += 1) {

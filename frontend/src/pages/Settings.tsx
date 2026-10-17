@@ -1,11 +1,11 @@
-import { Download, FolderOpen, LoaderCircle, PlugZap, Save, X } from "lucide-react";
+import { Download, FolderOpen, LoaderCircle, PlugZap, Save, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { api, desktop } from "../api";
-import { Meter, Notice, NumberInput, Segmented, Status } from "../components/ui";
+import { Meter, Notice, NumberInput, Segmented, Status, useConfirm } from "../components/ui";
 import { useApp } from "../context";
-import { megabytes, span } from "../format";
-import type { ModelStatus, Settings, Severity } from "../types";
+import { dateTime, megabytes, span } from "../format";
+import type { LoginStatus, ModelStatus, Settings, Severity } from "../types";
 
 // 模型名称会随服务商更新，以对方文档为准；这里只是常用的默认值。
 const LLM_PRESETS = [
@@ -18,6 +18,67 @@ const LLM_PRESETS = [
 ];
 const WINDOWS = [60, 120, 180, 300, 600, 900, 1800];
 const INTERVALS = [15, 30, 60, 120, 300];
+
+/** 直播平台登录信息：在开播页的“登录平台账号”里登录，这里只看状态和清除。 */
+function LoginCard() {
+  const { live, info, toast } = useApp();
+  const [status, setStatus] = useState<LoginStatus | null>(null);
+  const { confirm, dialog } = useConfirm();
+
+  useEffect(() => {
+    api.logins().then(setStatus).catch(() => undefined);
+  }, []);
+
+  const current = live.logins ?? status;
+  const savedAt = current?.saved_at ? dateTime(new Date(current.saved_at * 1000).toISOString()) : "";
+  const clear = async () => {
+    const ok = await confirm(
+      "清除登录信息？",
+      "会关掉登录窗口，删除保存的各直播平台登录信息。之后要登录才能看的直播间需要重新登录。",
+      "清除",
+    );
+    if (!ok) return;
+    try {
+      setStatus(await api.clearLogins());
+      toast({ severity: "info", title: "登录信息已清除" });
+    } catch (reason) {
+      toast({ severity: "high", title: "清除失败", detail: (reason as Error).message });
+    }
+  };
+
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h3>直播平台登录</h3>
+      </div>
+      <div className="card-body stack">
+        <p className="secondary">
+          有的直播间要登录才能看（例如淘宝直播）。在开播页选“直播间链接”，粘贴链接后点“登录平台账号”，在弹出的浏览器窗口里登录一次，之后打开直播间时会自动带上登录信息。登录信息只保存在本机
+          {info?.platform === "win32" ? "，并且加密保存，只有这台电脑上的当前用户能用" : ""}。
+        </p>
+        <div className="row between">
+          {savedAt ? (
+            <Status tone="good">
+              已保存（{savedAt} 更新）{current?.open ? "，登录窗口还开着" : ""}
+            </Status>
+          ) : (
+            <Status tone="neutral">{current?.open ? "登录窗口开着，还没有登录信息" : "还没有登录过"}</Status>
+          )}
+          <button
+            className="btn"
+            type="button"
+            onClick={clear}
+            disabled={!current || (!current.open && !current.saved_at)}
+          >
+            <Trash2 size={15} />
+            清除登录信息
+          </button>
+        </div>
+      </div>
+      {dialog}
+    </section>
+  );
+}
 
 export function SettingsPage() {
   const { settings, setSettings, info, live, toast, setLeaveGuard } = useApp();
@@ -387,6 +448,8 @@ export function SettingsPage() {
             </span>
           </div>
         </section>
+
+        <LoginCard />
 
         <section className="card">
           <div className="card-head">

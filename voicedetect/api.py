@@ -30,7 +30,9 @@ from .analysis.llm import LlmError, LlmReviewer
 from .app import Services
 from .asr.base import RecognizerError
 from .asr.models import ModelError
+from .audio.browser import BrowserError
 from .audio.recording import recording_seconds
+from .audio.room import extract_url
 from .config import SECRET_MASK, AppSettings, LlmSettings, data_dir, recording_path, uploads_dir
 from .export import session_markdown
 from .frameworks import Framework, new_id
@@ -45,6 +47,10 @@ AUDIO_PATH = re.compile(r"/api/sessions/[^/]+/audio")
 
 class FolderRequest(BaseModel):
     folder: str
+
+
+class UrlRequest(BaseModel):
+    url: str
 
 
 def create_app(services: Services, *, token: str, web_dir: Path | None = None) -> FastAPI:
@@ -67,6 +73,7 @@ def create_app(services: Services, *, token: str, web_dir: Path | None = None) -
         (RecognizerError, 400),
         (ModelError, 400),
         (LlmError, 400),
+        (BrowserError, 400),
         (SessionBusy, 409),
     ):
         app.add_exception_handler(error, _handler(status))
@@ -154,6 +161,21 @@ def create_app(services: Services, *, token: str, web_dir: Path | None = None) -
     def import_model(request: FolderRequest) -> dict[str, Any]:
         services.downloads.store.import_from(Path(request.folder))
         return services.downloads.status()
+
+    # —— 直播平台登录 ——
+
+    @app.get("/api/logins")
+    def login_status() -> dict[str, Any]:
+        return services.logins.status()
+
+    @app.post("/api/logins/open")
+    def open_login(request: UrlRequest) -> dict[str, Any]:
+        """弹出登录窗口并打开这个直播间，用户在窗口里登录（分享口令里的链接也能认出来）。"""
+        return services.logins.open(extract_url(request.url))
+
+    @app.delete("/api/logins")
+    def clear_logins() -> dict[str, Any]:
+        return services.logins.clear()
 
     # —— 当前盯播 ——
 

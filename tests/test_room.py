@@ -54,6 +54,9 @@ fetch('/media/tone.wav').then(r => r.blob()).then(b => {
 });
 </script>"""
 OFFLINE_ROOM = "<!doctype html><title>还没开播</title><p>主播还没开播</p>"
+LOGIN_WALL = "<!doctype html><title>请登录</title><p>登录后才能观看直播</p>"
+LOGGED_IN = "<!doctype html><title>登录成功</title><p>已登录</p>"
+LOGIN_COOKIE = "vd_login=1"
 
 
 def write_flv(path, seconds, *, frequency, rate=44100):
@@ -73,7 +76,10 @@ def write_flv(path, seconds, *, frequency, rate=44100):
 
 
 class Site:
-    """本地的模拟直播间网站。/cdn/ 下的流要求 Referer 来自直播间网页，模拟直播 CDN 的防盗链。"""
+    """本地的模拟直播间网站。/cdn/ 下的流要求 Referer 来自直播间网页，模拟直播 CDN 的防盗链。
+
+    /private-room 模拟要登录才能看的直播间（例如淘宝直播）：请求带着 /login 发的会话 Cookie 才有直播。
+    """
 
     def __init__(self, tmp_path):
         self.flv = write_flv(tmp_path / "live.flv", 3.0, frequency=440)
@@ -94,12 +100,17 @@ class Site:
                     "/offline-room": OFFLINE_ROOM,
                 }
                 pages["/flv-room"] = FLV_ROOM if site.live else OFFLINE_ROOM
+                pages["/private-room"] = FLV_ROOM if LOGIN_COOKIE in self.headers.get("Cookie", "") else LOGIN_WALL
                 if self.path in pages:
                     self._send(200, "text/html; charset=utf-8", pages[self.path].encode())
+                elif self.path == "/login":
+                    # 会话 Cookie（不带过期时间）：浏览器一关就没了
+                    self._send(200, "text/html; charset=utf-8", LOGGED_IN.encode(), cookie=f"{LOGIN_COOKIE}; Path=/")
                 elif self.path == "/cdn/live.flv":
+                    referer = self.headers.get("Referer", "")
                     if not site.live:
                         self._send(404, "text/plain", b"ended")
-                    elif "/flv-room" not in self.headers.get("Referer", ""):
+                    elif "/flv-room" not in referer and "/private-room" not in referer:
                         self._send(403, "text/plain", b"forbidden")
                     else:
                         self._send(200, "video/x-flv", site.flv)
@@ -108,10 +119,12 @@ class Site:
                 else:
                     self._send(404, "text/plain", b"")
 
-            def _send(self, status, kind, body):
+            def _send(self, status, kind, body, cookie=""):
                 self.send_response(status)
                 self.send_header("Content-Type", kind)
                 self.send_header("Content-Length", str(len(body)))
+                if cookie:
+                    self.send_header("Set-Cookie", cookie)
                 self.end_headers()
                 try:
                     self.wfile.write(body)

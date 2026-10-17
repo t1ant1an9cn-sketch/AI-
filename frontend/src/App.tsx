@@ -95,7 +95,7 @@ export function App() {
     let refetch: number | undefined;
     const onEvent = (event: LiveEvent) => {
       dispatch(event);
-      if (event.type === "hello" || event.type === "model") return;
+      if (event.type === "hello" || event.type === "model" || event.type === "logins") return;
       const session = liveRef.current.session;
       // 本页还不知道的场次（例如开播请求返回前就到的事件）：取一次完整状态。
       if (!session || session.session_id !== event.session_id) {
