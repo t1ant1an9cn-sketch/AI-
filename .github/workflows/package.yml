@@ -58,9 +58,15 @@ jobs:
         run: |
           version=$(uv run python -c "import voicedetect; print(voicedetect.__version__)")
           echo "VERSION=$version" >> "$GITHUB_ENV"
-          if [[ "$GITHUB_REF" == refs/tags/v* && "${GITHUB_REF_NAME#v}" != "$version" ]]; then
-            echo "::error::标签 $GITHUB_REF_NAME 和程序版本 $version 不一致"
-            exit 1
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            if [[ "${GITHUB_REF_NAME#v}" != "$version" ]]; then
+              echo "::error::标签 $GITHUB_REF_NAME 和程序版本 $version 不一致"
+              exit 1
+            fi
+            if ! grep -q "^## $version" CHANGELOG.md; then
+              echo "::error::CHANGELOG.md 里还没有写 $version 这一版改了什么"
+              exit 1
+            fi
           fi
 
       - name: 打包程序
@@ -140,4 +146,11 @@ jobs:
       - name: 发布到 Releases
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" out/* --title "AI 盯播助手 ${GITHUB_REF_NAME#v}" --notes-file packaging/release-notes.md
+        run: |
+          # 说明 = CHANGELOG.md 里这一版的那一节 + 下载和安装说明
+          version="${GITHUB_REF_NAME#v}"
+          awk -v head="## $version" 'index($0, head) == 1 { keep = 1; next } /^## / { keep = 0 } keep' CHANGELOG.md > notes.md
+          printf '\n' >> notes.md
+          cat packaging/release-notes.md >> notes.md
+          gh release create "$GITHUB_REF_NAME" out/* --title "AI 盯播助手 $version" --notes-file notes.md
+          echo "::notice title=已发布::$(ls out | tr '\n' ' ')"

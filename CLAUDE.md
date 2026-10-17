@@ -27,6 +27,7 @@ dist/AI盯播助手/VoiceDetect.exe selfcheck  # 打开真窗口，界面显示�
 ```
 
 - GitHub Actions：`test.yml` 每次推送在 Windows 和 macOS 上跑全部测试；`package.yml` 推送 main 时打 Windows 安装包和两种 Mac 的 dmg 并装上检查，推送 `v*` 标签时发布 Release。不登录读不到运行日志，结果写在标注里（`.github/scripts/annotate.py`、`packaging/check_app.sh`），用公开接口 `/repos/t1ant1an9cn-sketch/AI-/check-runs/<id>/annotations` 读。只推送 `main`：本地的 `desktop-rewrite`、`real-asr-validation`、`master` 分支里有真实直播间链接，不能推。
+- 发布新版本：改 `voicedetect/__init__.py` 的 `__version__`，前端用 `npm version X.Y.Z --no-git-tag-version` 同步（`uv.lock` 不记录版本），在 `CHANGELOG.md` 加 `## X.Y.Z（日期）` 一节；提交推送后再推送 `vX.Y.Z` 标签。`package.yml` 会检查标签和版本号、CHANGELOG 是否一致，打包检查通过后发布 Release（说明 = CHANGELOG 那一节 + `packaging/release-notes.md`）。推送标签就是公开发布，先征得用户同意。
 - 打包后双击打开没有命令行窗口，`sys.stdout`/`sys.stderr` 是 `None`：不要假设能打印，不要让第三方库自己配置控制台日志。
 
 - `analyze` 和桌面程序都会把场次写入数据目录。测试或试跑时设 `VOICEDETECT_HOME` 指到临时目录，避免污染用户的历史记录；`VOICEDETECT_MODELS` 可单独指向已下载的模型。

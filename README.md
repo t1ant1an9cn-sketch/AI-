@@ -37,7 +37,7 @@
 - Windows 10/11（64 位）：`AI盯播助手-版本号-安装包.exe`，双击安装，不需要管理员权限。安装包没有数字签名，Windows 可能提示“Windows 已保护你的电脑”，点“更多信息”→“仍要运行”。
 - Mac（Apple 芯片或 Intel）：对应的 `.dmg`，把程序拖进“应用程序”。程序没有经过苹果公证，第一次打开要到“系统设置 → 隐私与安全性”里点“仍要打开”。
 
-每次推送到 main，GitHub 都会自动打出这几个安装包，并且装上跑一遍（分析演示音频、打开窗口确认界面能显示），在 [Actions](https://github.com/t1ant1an9cn-sketch/AI-/actions/workflows/package.yml) 里每次运行的 Artifacts 中（需要登录 GitHub）；推送 `v` 开头的版本标签时发布到 Releases。
+每个版本改了什么见 [CHANGELOG.md](CHANGELOG.md)。每次推送到 main，GitHub 都会自动打出这几个安装包，并且装上跑一遍（分析演示音频、打开窗口确认界面能显示），在 [Actions](https://github.com/t1ant1an9cn-sketch/AI-/actions/workflows/package.yml) 里每次运行的 Artifacts 中（需要登录 GitHub）；推送 `v` 开头的版本标签时发布到 Releases。
 
 **从源码运行**（开发用），需要：
 

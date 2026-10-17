@@ -1,5 +1,5 @@
 ﻿; Inno Setup 安装包脚本。先用 PyInstaller 生成 dist\AI盯播助手\，再在仓库根目录编译：
-;   iscc /DAppVersion=0.2.0 packaging\installer.iss
+;   iscc /DAppVersion=<版本号> packaging\installer.iss
 ; 输出 dist\AI盯播助手-<版本>-安装包.exe。按当前用户安装，不需要管理员权限，装在 %LOCALAPPDATA%\Programs 下。
 ; 卸载只删程序本身；场次记录、录音、识别模型和设置在 %LOCALAPPDATA%\voicedetect，卸载后还在。
 
