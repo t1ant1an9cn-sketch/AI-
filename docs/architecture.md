@@ -42,7 +42,9 @@
 | `voicedetect/api.py` | HTTP 接口和 WebSocket；令牌和 Host 校验；录音的读取（支持 Range，可拖动进度）和删除。 |
 | `voicedetect/desktop.py` | 启动本地服务和桌面窗口；暴露给网页的系统文件对话框。 |
 | `voicedetect/export.py` | 把一场盯播整理成 Markdown 复盘报告。 |
-| `voicedetect/__main__.py` | 命令行入口（桌面、浏览器、serve、analyze、devices、models）。 |
+| `voicedetect/__main__.py` | 命令行入口（桌面、浏览器、serve、analyze、devices、models、selfcheck）。 |
+| `voicedetect/instance.py` | 同一个数据库只有一个主实例（文件锁）。 |
+| `packaging/` | 打包：PyInstaller 配置、Windows 安装程序脚本、图标、打包后的检查脚本、发布说明。 |
 | `voicedetect/assets/` | 内置话术框架模板和演示音频。 |
 | `frontend/` | 界面：`pages/` 四个页面，`components/` 转写、报告、图表等组件，`live.ts` 把实时事件合并进页面状态，`api.ts` 接口调用。构建结果输出到 `voicedetect/web/`。 |
 | `tests/` | 后端测试。`fakes.py` 提供按脚本“识别”的引擎和按块输出的音频来源，用来确定性地测试整条流程。 |
@@ -96,9 +98,20 @@ WebSocket 事件类型：`hello`、`state`、`level`（输入电平）、`partia
 
 **本地服务的安全边界。** 服务只监听 127.0.0.1；每次启动生成随机令牌，放在网址 `#` 之后（不会发给服务器、不进日志），接口请求要带上。浏览器的 WebSocket 和 `<audio>` 元素没法加请求头，所以只有 `/api/events` 和录音地址 `/api/sessions/{id}/audio` 接受 `?token=`。同时检查 Host 头，防止网页借 DNS 重绑定访问本地接口；录音路径由场次 ID 拼出，ID 先按 `[A-Za-z0-9_-]` 校验，拼不出数据目录以外的路径。
 
-**桌面外壳用 pywebview，暂不用 Tauri。** 整个后端就是一个 Python 进程，pywebview 直接在同一进程里打开系统网页引擎窗口，不需要 Rust 工具链和额外的进程间通信。代价是运行时需要 Python 环境，目前还没有安装包。
+**桌面外壳用 pywebview，暂不用 Tauri。** 整个后端就是一个 Python 进程，pywebview 直接在同一进程里打开系统网页引擎窗口，不需要 Rust 工具链和额外的进程间通信。运行时需要的 Python 环境由 PyInstaller 一起打进安装包（见下面“安装包”）。
+
+**同一个数据库只有一个主实例。** 双击两次图标会开出两个程序，后开的那个启动时会把前一个正在盯的场次当成异常退出留下的、标成“已中断”。主实例拿着数据库文件夹里 `running.lock` 的文件锁（`instance.py`，Windows 用 `msvcrt.locking`，macOS 用 `flock`，进程退出时系统自动放开）；再打开桌面程序时弹出“已经打开了”的提示就退出。命令行的 `analyze` 不是主实例时照常分析，只是不去改别的场次的状态。
 
 **数据库升级用 `PRAGMA user_version`，暂不用 Alembic。** 只有一个本地 SQLite 文件、表结构简单，按版本号顺序执行迁移函数就够了；`storage.py` 的 `_MIGRATIONS` 里追加一步即可升级旧数据。
+
+## 安装包
+
+- **PyInstaller 打成文件夹**（`packaging/voicedetect.spec`）：Windows 是 `AI盯播助手/VoiceDetect.exe` 加 `_internal`，macOS 再包成 `AI盯播助手.app`。不打成单个 exe：单个 exe 每次启动都要先把一百多 MB 解压到临时目录，慢，也容易被杀毒软件拦。sherpa-onnx 的原生库要显式收进来，界面构建结果和内置资源按原来的包内路径放，`importlib.resources` 照常能找到。exe 的“文件说明”写成“AI 盯播助手”，任务管理器、音量合成器里显示这个名字。
+- **Windows 安装程序**用 Inno Setup（`packaging/installer.iss`）：按当前用户装在 `%LOCALAPPDATA%\Programs`，不弹管理员权限确认；升级时先删旧的 `_internal`；卸载不删数据目录。**macOS** 做成 dmg，里面放一个“应用程序”的快捷方式，拖进去就装好了；Info.plist 里写了麦克风用途说明，没有它 macOS 不让用麦克风。
+- 都**没有签名**：Windows 会提示“已保护你的电脑”，Mac 要到“隐私与安全性”里允许。签名需要付费证书，以后再定。
+- **没有命令行窗口**：双击打开的程序 `sys.stdout`、`sys.stderr` 是 `None`。uvicorn 默认的日志格式化器会去问命令行支不支持颜色而直接出错，所以本地服务不让 uvicorn 配置日志（警告照常写进日志文件），`main()` 也把它们换成丢弃输出的文件；桌面程序启动出错时弹出提示框，不悄悄退出。
+- **WebView2**：Windows 11 自带，Windows 10 一般随新版 Edge 装好。没有它时 pywebview 会退回 IE 内核、界面显示不出来，所以启动前查一下注册表，没有就用默认浏览器打开界面；这时网页关掉一分钟（又没有在盯播）程序自己退出。
+- **自动打包和检查**（`.github/workflows/package.yml`）：在 GitHub 的 Windows、Mac（Apple 芯片）、Mac（Intel）机器上各打一份，先装上（Windows 静默安装）再跑 `packaging/check_app.sh`：用打包好的程序分析演示音频，再用 `selfcheck` 打开真的桌面窗口，等界面显示出来、从本地服务读到版本号再关掉。推送 `v` 开头的标签时发布到 Releases。`VOICEDETECT_DEVTOOLS_PORT` 可以打开窗口里网页引擎的调试端口，本机检查打包后的窗口用，平时不设。
 
 ## 识别引擎
 
@@ -126,7 +139,10 @@ WebSocket 事件类型：`hello`、`state`、`level`（输入电平）、`partia
 - `tests/test_room.py`：本机起一个模拟直播间网站，用真实的 Edge/Chrome 打开：fetch flv 的网页走直接拉流（CDN 要求 Referer，断开后自动重连），Web Audio 和 `<audio>` 出声的网页走从网页取声音（被挤到后台也不静音），没开播的网页给出提示；没有浏览器时跳过这几项。
 - `tests/test_apps.py`：同时启动两个播放不同频率正弦波的程序（很轻，-50 dBFS），只采集其中一个时另一个的声音低 40 dB 以上；程序列表里有它且标为正在出声；程序退出后来源结束并提醒；父进程归并规则用构造的进程表测试。需要 Windows 11 和播放设备，否则跳过。
 - `tests/test_logins.py`：模拟网站的直播间要带着登录页发的会话 Cookie 才有直播：未登录时打不开，在登录窗口（测试时用无界面模式）登录一次后能直接拉流；重开登录窗口仍是登录状态；清除后 Cookie 和资料目录都删掉；Cookie 文件在 Windows 上不是明文。
+- `tests/test_instance.py`：另一个进程拿着锁时拿不到；不是主实例时不把别人进行中的场次标成“已中断”；浏览器模式在网页关掉、盯播结束后自己退出。
+- `tests/test_desktop.py`：没有命令行窗口（`sys.stdout` 为 `None`）时本地服务照样能起来，命令照样能跑。
 - `tests/test_xfyun.py`：用本地 WebSocket 服务器模拟讯飞协议（签名用官方文档示例核对）。
 - `tests/test_llm.py`：用模拟的 HTTP 服务测试提示词、结果解析和错误提示。
 - `tests/test_sensevoice.py`：用真实模型跑演示音频，检查能抓到预设的违规词、冷场和漏讲（未下载模型时跳过）。
 - `frontend/src/*.test.ts`：时间格式、高亮切分、实时事件合并。
+- **自动测试**（`.github/workflows/test.yml`）：每次推送都在 GitHub 的 Windows 和 Mac 机器上跑上面全部测试（含真实识别和真实浏览器），通过、失败、跳过的数量和跳过原因写在运行页面的标注里。

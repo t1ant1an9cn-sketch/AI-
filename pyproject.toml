@@ -26,6 +26,9 @@ dependencies = [
 voicedetect = "voicedetect.__main__:main"
 
 [dependency-groups]
+build = [
+    "pyinstaller>=6.10",
+]
 dev = [
     "pytest>=8",
     "ruff>=0.6",

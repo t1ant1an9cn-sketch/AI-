@@ -1,5 +1,5 @@
 """桌面窗口：后台线程启动本地服务，用系统自带的网页引擎（Windows 为 WebView2，macOS 为 WKWebView）显示界面；
-没有可用的网页引擎时改用默认浏览器打开。
+没有可用的网页引擎时改用默认浏览器打开。同一时间只开一个程序（instance.py），再打开时提示已经在运行。
 
 访问令牌放在网址的 # 之后：这部分不会发给服务器、也不会写进日志，界面读取后保存在本页会话里。
 """
@@ -7,22 +7,29 @@
 from __future__ import annotations
 
 from importlib.resources import files
+import json
 import logging
 from logging.handlers import RotatingFileHandler
+import os
 from pathlib import Path
 import secrets
 import socket
+import sys
 import threading
 import time
 import webbrowser
 
 import uvicorn
 
+from . import instance
 from .api import create_app
 from .app import Services
-from .config import data_dir
+from .config import data_dir, database_path
 
 log = logging.getLogger(__name__)
+
+BROWSER_IDLE_EXIT = 60.0  # 在浏览器里打开时，网页关掉这么久（又没有在盯播）程序就自己退出
+ALREADY_RUNNING = "AI 盯播助手已经打开了，请在任务栏里找到它。"
 
 AUDIO_TYPES = (
     "音频或视频 (*.wav;*.mp3;*.m4a;*.aac;*.flac;*.ogg;*.opus;*.wma;*.mp4;*.mov;*.mkv;*.flv;*.ts;*.webm)",
@@ -51,7 +58,12 @@ class LocalServer:
 
     def __init__(self, app, port: int) -> None:
         self.port = port
-        self._server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+        # 不让 uvicorn 自己配置日志：它的格式化器要看命令行窗口支不支持颜色，打包后双击打开时没有命令行窗口，
+        # 会直接出错。警告和错误照常写进程序的日志文件。
+        config = uvicorn.Config(
+            app, host="127.0.0.1", port=port, log_level="warning", log_config=None, access_log=False
+        )
+        self._server = uvicorn.Server(config)
         self._thread = threading.Thread(target=self._server.run, name="local-server", daemon=True)
 
     def start(self, timeout: float = 15.0) -> None:
@@ -103,6 +115,18 @@ class DesktopApi:
 
 def run_app(*, browser: bool = False, port: int = 0) -> int:
     _setup_file_logging()
+    if not instance.acquire(database_path().parent):
+        _tell(ALREADY_RUNNING)
+        return 0
+    try:
+        return _run(browser=browser, port=port)
+    except Exception as exc:  # 双击打开的程序没有命令行窗口，出错要弹出来，不能悄悄退出
+        log.exception("desktop app failed")
+        _tell(f"AI 盯播助手出错了：{exc}\n\n详细信息在 {data_dir() / 'logs' / 'voicedetect.log'}")
+        return 1
+
+
+def _run(*, browser: bool, port: int) -> int:
     _prepare_audio()
     services = Services.create()
     token = secrets.token_urlsafe(24)
@@ -110,12 +134,51 @@ def run_app(*, browser: bool = False, port: int = 0) -> int:
     server.start()
     url = f"http://127.0.0.1:{server.port}/#token={token}"
     try:
-        if browser or not _open_window(url):
-            _open_browser(url)
+        if browser or not webview2_available() or not _open_window(url):
+            _open_browser(url, services)
     finally:
         services.close()
         server.stop()
     return 0
+
+
+def selfcheck(*, timeout: float = 60.0) -> int:
+    """打开桌面窗口，等界面显示出来就关掉，打印检查结果。检查打包后的程序用：本地服务、网页引擎和界面都要能用。"""
+    import webview
+
+    _prepare_audio()
+    services = Services.create()
+    token = secrets.token_urlsafe(24)
+    server = LocalServer(create_app(services, token=token, web_dir=web_dir()), free_port())
+    server.start()
+    result = {"window": False, "title": "", "version": ""}
+    try:
+        window = webview.create_window(
+            "AI 盯播助手（自检）", f"http://127.0.0.1:{server.port}/#token={token}", width=1200, height=800
+        )
+
+        def probe() -> None:
+            deadline = time.monotonic() + timeout
+            # 界面画出来了才有开播页；侧栏里的版本号是从本地服务读到的，有它说明界面连得上服务
+            version = "document.querySelector('.version')?.textContent ?? ''"
+            rendered = f"document.querySelector('.setup, .live') && ({version}) ? document.title : ''"
+            while time.monotonic() < deadline:
+                try:
+                    title = window.evaluate_js(rendered)
+                    if title:
+                        result.update(window=True, title=title, version=window.evaluate_js(version))
+                        break
+                except Exception:
+                    log.debug("page not ready yet", exc_info=True)
+                time.sleep(0.5)
+            window.destroy()
+
+        webview.start(probe, private_mode=True)
+    finally:
+        services.close()
+        server.stop()
+    print(json.dumps(result, ensure_ascii=False))
+    return 0 if result["window"] else 1
 
 
 def serve_forever(*, port: int, token: str) -> int:
@@ -151,6 +214,9 @@ def _open_window(url: str) -> bool:
             background_color="#F6F7F9",
         )
         storage = data_dir() / "webview"
+        if port := os.environ.get("VOICEDETECT_DEVTOOLS_PORT"):
+            # 只给自动化检查用：经这个端口操作窗口里的界面，检查打包后的程序。平时不设置，不开调试端口。
+            webview.settings["REMOTE_DEBUGGING_PORT"] = int(port)
         webview.start(private_mode=False, storage_path=str(storage))
     except Exception:
         log.exception("desktop window failed, falling back to browser")
@@ -158,15 +224,54 @@ def _open_window(url: str) -> bool:
     return True
 
 
-def _open_browser(url: str) -> None:
-    print("没有可用的桌面窗口组件，已在浏览器中打开界面。关闭这个窗口或按 Ctrl+C 退出。")
+def webview2_available() -> bool:
+    """Windows 上桌面窗口要用 WebView2（Windows 11 自带，Windows 10 一般随新版 Edge 装好）。
+    没有时 pywebview 会退回 IE 内核，界面显示不出来，不如直接用浏览器打开。"""
+    if sys.platform != "win32":
+        return True
+    import winreg
+
+    client = r"Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+    for root, path in (
+        (winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\WOW6432Node\{client}"),
+        (winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\{client}"),
+        (winreg.HKEY_CURRENT_USER, rf"SOFTWARE\{client}"),
+    ):
+        try:
+            with winreg.OpenKey(root, path) as key:
+                version, _ = winreg.QueryValueEx(key, "pv")
+        except OSError:
+            continue
+        if version and version != "0.0.0.0":
+            return True
+    log.warning("WebView2 runtime not found; opening the interface in the browser")
+    return False
+
+
+def _open_browser(url: str, services: Services, *, idle_exit: float = BROWSER_IDLE_EXIT) -> None:
+    """用默认浏览器打开界面。打包后的程序没有命令行窗口可以按 Ctrl+C，所以网页关掉一会儿、
+    又没有在盯播时，程序自己退出。"""
+    print("已在浏览器中打开界面。关掉网页一分钟后程序自动退出，也可以按 Ctrl+C 退出。")
     print(url)
     webbrowser.open(url)
+    idle_since = time.monotonic()
     try:
-        while True:
+        while time.monotonic() - idle_since < idle_exit:
             time.sleep(1)
+            session = services.monitor.current
+            if services.bus.listeners or (session is not None and not session.finished):
+                idle_since = time.monotonic()
     except KeyboardInterrupt:
         pass
+
+
+def _tell(message: str) -> None:
+    """给用户看一句话：打包后的程序没有命令行窗口，Windows 上弹一个提示框。"""
+    print(message)
+    if sys.platform == "win32" and getattr(sys, "frozen", False):
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(None, message, "AI 盯播助手", 0x40)  # 0x40：信息图标
 
 
 def _prepare_audio() -> None:

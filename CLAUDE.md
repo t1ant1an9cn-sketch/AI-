@@ -22,7 +22,12 @@ uv run voicedetect --browser               # 浏览器打开
 uv run voicedetect serve --token dev       # 只起本地服务（8765），配合 `npm run dev` 开发界面
 uv run voicedetect analyze voicedetect/assets/demo/thermos-demo.ogg --framework tpl-thermos-cup --window 60 --interval 20
 uv run voicedetect models download|status|import <dir>
+uv run --group build pyinstaller packaging/voicedetect.spec --noconfirm   # 打包到 dist/AI盯播助手/（先构建界面）
+dist/AI盯播助手/VoiceDetect.exe selfcheck  # 打开真窗口，界面显示出来就关掉；VOICEDETECT_DEVTOOLS_PORT 可开调试端口
 ```
+
+- GitHub Actions：`test.yml` 每次推送在 Windows 和 macOS 上跑全部测试；`package.yml` 推送 main 时打 Windows 安装包和两种 Mac 的 dmg 并装上检查，推送 `v*` 标签时发布 Release。不登录读不到运行日志，结果写在标注里（`.github/scripts/annotate.py`、`packaging/check_app.sh`），用公开接口 `/repos/t1ant1an9cn-sketch/AI-/check-runs/<id>/annotations` 读。只推送 `main`：本地的 `desktop-rewrite`、`real-asr-validation`、`master` 分支里有真实直播间链接，不能推。
+- 打包后双击打开没有命令行窗口，`sys.stdout`/`sys.stderr` 是 `None`：不要假设能打印，不要让第三方库自己配置控制台日志。
 
 - `analyze` 和桌面程序都会把场次写入数据目录。测试或试跑时设 `VOICEDETECT_HOME` 指到临时目录，避免污染用户的历史记录；`VOICEDETECT_MODELS` 可单独指向已下载的模型。
 - `tests/conftest.py` 自动把每个测试的数据目录换成临时目录，模型目录沿用本机已下载的那份。`test_sensevoice.py` 在没有模型时自动跳过；`test_room.py` 的浏览器测试在没有 Edge/Chrome 时跳过，跑一遍约 35 秒。

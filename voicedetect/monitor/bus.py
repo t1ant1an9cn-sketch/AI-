@@ -22,6 +22,12 @@ class EventBus:
             self._subscribers.append((asyncio.get_running_loop(), queue))
         return queue
 
+    @property
+    def listeners(self) -> int:
+        """正连着的界面个数。"""
+        with self._lock:
+            return len(self._subscribers)
+
     def unsubscribe(self, queue: asyncio.Queue[Event]) -> None:
         with self._lock:
             self._subscribers = [(loop, q) for loop, q in self._subscribers if q is not queue]

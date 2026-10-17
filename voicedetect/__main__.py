@@ -6,6 +6,7 @@ voicedetect serve --token X      只启动本地服务（前端开发用）
 voicedetect analyze 录音.mp3     不开界面，直接分析一个音频文件
 voicedetect devices              列出可采集的音频设备
 voicedetect models download      下载本地识别模型
+voicedetect selfcheck            打开桌面窗口确认界面能显示，然后自动关闭（检查安装包用）
 """
 
 from __future__ import annotations
@@ -13,12 +14,16 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 from pathlib import Path
 import sys
 import uuid
 
 
 def main(argv: list[str] | None = None) -> int:
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name) is None:  # 打包后双击打开时没有命令行窗口；换成丢弃输出的文件，print 不出错
+            setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")  # Windows 终端默认编码打不出中文
@@ -44,6 +49,9 @@ def main(argv: list[str] | None = None) -> int:
 
     commands.add_parser("devices", help="列出可采集的音频设备")
 
+    check = commands.add_parser("selfcheck", help="打开桌面窗口，界面显示出来就关掉（检查安装包用）")
+    check.add_argument("--timeout", type=float, default=60, help="最多等多少秒")
+
     models = commands.add_parser("models", help="管理本地识别模型")
     model_actions = models.add_subparsers(dest="action", required=True)
     download = model_actions.add_parser("download", help="下载模型")
@@ -65,6 +73,10 @@ def main(argv: list[str] | None = None) -> int:
             return _analyze(args)
         if args.command == "devices":
             return _devices()
+        if args.command == "selfcheck":
+            from .desktop import selfcheck
+
+            return selfcheck(timeout=args.timeout)
         if args.command == "models":
             return _models(args)
         from .desktop import run_app

@@ -8,6 +8,7 @@ from pathlib import Path
 import threading
 from typing import Any
 
+from . import instance
 from .asr.models import SENSEVOICE, DownloadCancelled, ModelStore
 from .audio.logins import LoginWindow
 from .config import AppSettings, database_path, models_dir
@@ -92,11 +93,15 @@ class Services:
     monitor: SessionManager
     downloads: ModelDownloads
     logins: LoginWindow
+    primary: bool = True  # 是不是这个数据库唯一在用的程序；不是时不去改别人正在进行的场次
 
     @classmethod
     def create(cls, db_path: Path | None = None) -> Services:
-        storage = Storage(db_path or database_path())
-        storage.mark_interrupted()
+        path = db_path or database_path()
+        storage = Storage(path)
+        primary = instance.acquire(path.parent)
+        if primary:
+            storage.mark_interrupted()  # 只有没有别的程序在用这个数据库时，进行中的场次才是上次异常退出留下的
         storage.seed_templates(builtin_templates())
         bus = EventBus()
 
@@ -109,6 +114,7 @@ class Services:
             monitor=SessionManager(storage=storage, bus=bus, settings=settings),
             downloads=ModelDownloads(bus, settings),
             logins=LoginWindow(on_change=lambda status: bus.publish({"type": "logins", **status})),
+            primary=primary,
         )
 
     def settings(self) -> AppSettings:

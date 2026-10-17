@@ -1,0 +1,128 @@
+# 打安装包：Windows 安装程序（Inno Setup），macOS 磁盘映像（Apple 芯片和 Intel 各一个）。
+# 推送到 main 或手动运行时打包，安装包在运行页面的 Artifacts 里（登录 GitHub 后下载）；
+# 推送 v 开头的标签（例如 v0.3.0）时再发布到 Releases，不登录也能下载。
+# 每个安装包打好后都先装上跑一遍：分析演示音频，打开桌面窗口确认界面能显示（packaging/check_app.sh）。
+name: 打包
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write  # 发布 Release
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows
+            os: windows-latest
+          - name: macos-arm64
+            os: macos-latest
+          - name: macos-x64
+            os: macos-15-intel
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      UV_PYTHON: "3.12"
+      PYTHONIOENCODING: utf-8
+      VOICEDETECT_MODELS: ${{ github.workspace }}/.models
+      VOICEDETECT_HOME: ${{ github.workspace }}/.check-home  # 检查时的数据目录，不进安装包
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.3.0  # 这个仓库从 v8 起只发完整版本号
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装依赖
+        run: uv sync --locked --group build
+
+      - name: 构建界面
+        working-directory: frontend
+        run: npm ci && npm run build
+
+      - name: 读版本号
+        run: |
+          version=$(uv run python -c "import voicedetect; print(voicedetect.__version__)")
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          if [[ "$GITHUB_REF" == refs/tags/v* && "${GITHUB_REF_NAME#v}" != "$version" ]]; then
+            echo "::error::标签 $GITHUB_REF_NAME 和程序版本 $version 不一致"
+            exit 1
+          fi
+
+      - name: 打包程序
+        run: uv run pyinstaller packaging/voicedetect.spec --noconfirm
+
+      - name: 制作并安装安装程序（Windows）
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:VERSION" packaging\installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $installer = Get-ChildItem dist -Filter *.exe | Select-Object -First 1
+          $target = Join-Path $env:RUNNER_TEMP "app"
+          Start-Process -Wait -FilePath $installer.FullName -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=$target"
+          "APP_EXE=$(Join-Path $target 'VoiceDetect.exe')" >> $env:GITHUB_ENV
+
+      - name: 找到程序（macOS）
+        if: runner.os == 'macOS'
+        run: echo "APP_EXE=$PWD/dist/AI盯播助手.app/Contents/MacOS/VoiceDetect" >> "$GITHUB_ENV"
+
+      - name: 缓存识别模型
+        uses: actions/cache@v6
+        with:
+          path: .models
+          key: sensevoice-${{ hashFiles('voicedetect/asr/models.py') }}
+
+      - name: 下载识别模型
+        run: uv run voicedetect models download --source huggingface
+
+      - name: 检查打包好的程序
+        run: bash packaging/check_app.sh "$APP_EXE"
+
+      - name: 制作磁盘映像（macOS）
+        if: runner.os == 'macOS'
+        run: |
+          arch=$(uname -m | sed 's/x86_64/x64/')
+          mkdir dist/dmg
+          ditto "dist/AI盯播助手.app" "dist/dmg/AI盯播助手.app"
+          ln -s /Applications dist/dmg/Applications  # 打开映像后直接拖进“应用程序”
+          hdiutil create -volname "AI 盯播助手" -srcfolder dist/dmg -ov -format UDZO "dist/AI盯播助手-$VERSION-macOS-$arch.dmg"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: 发布到 Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" out/* --title "AI 盯播助手 ${GITHUB_REF_NAME#v}" --notes-file packaging/release-notes.md

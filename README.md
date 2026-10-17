@@ -32,9 +32,16 @@
 
 ## 安装
 
-需要：
+**直接用安装包（推荐）**：在 GitHub 的 [Releases](https://github.com/t1ant1an9cn-sketch/AI-/releases) 页面下载，不需要装 Python、Node 或敲命令：
 
-- Windows 10/11（主要测试环境）。macOS 理论上可用但还没测试过。
+- Windows 10/11（64 位）：`AI盯播助手-版本号-安装包.exe`，双击安装，不需要管理员权限。安装包没有数字签名，Windows 可能提示“Windows 已保护你的电脑”，点“更多信息”→“仍要运行”。
+- Mac（Apple 芯片或 Intel）：对应的 `.dmg`，把程序拖进“应用程序”。程序没有经过苹果公证，第一次打开要到“系统设置 → 隐私与安全性”里点“仍要打开”。
+
+每次推送到 main，GitHub 都会自动打出这几个安装包，并且装上跑一遍（分析演示音频、打开窗口确认界面能显示），在 [Actions](https://github.com/t1ant1an9cn-sketch/AI-/actions/workflows/package.yml) 里每次运行的 Artifacts 中（需要登录 GitHub）；推送 `v` 开头的版本标签时发布到 Releases。
+
+**从源码运行**（开发用），需要：
+
+- Windows 10/11 或 macOS 11 以上。日常开发在 Windows 上；macOS 只在 GitHub 的 Mac 机器上自动测试过，还没有人在真的 Mac 上用过。
 - [uv](https://docs.astral.sh/uv/)（Python 包管理器，会自动安装 Python 3.12）
 - Node.js 22.12 或更新版本（构建界面用）
 
@@ -110,14 +117,25 @@ uv run voicedetect serve --token dev   # 本地服务在 8765 端口
 cd frontend && npm run dev             # 打开 http://localhost:5173/#token=dev
 ```
 
-`scripts/make_demo_audio.py` 用 Windows 自带的中文语音重新生成演示音频。代码结构和设计取舍见 [docs/architecture.md](docs/architecture.md)，实验计划和结果见 [experiments/](experiments/README.md)。
+自己打安装包（Windows 上得到 `dist/AI盯播助手/`，macOS 上另外得到 `dist/AI盯播助手.app`）：
+
+```bash
+cd frontend && npm run build && cd ..
+uv run --group build pyinstaller packaging/voicedetect.spec --noconfirm
+dist/AI盯播助手/VoiceDetect.exe selfcheck      # 打开窗口确认界面能显示，然后自动关闭
+```
+
+Windows 安装程序用 [Inno Setup](https://jrsoftware.org/isinfo.php) 编译 `packaging/installer.iss`，平时由 GitHub 自动完成（`.github/workflows/package.yml`）。
+
+`scripts/make_demo_audio.py` 用 Windows 自带的中文语音重新生成演示音频，`scripts/make_icon.py` 生成程序图标。代码结构和设计取舍见 [docs/architecture.md](docs/architecture.md)，实验计划和结果见 [experiments/](experiments/README.md)。
 
 ## 当前限制
 
 - **准确率没有在真实直播里验证过**：完整流程只用合成的演示音频跑通过；讯飞只用真实账号测过 30 秒音频。真人直播的口音、背景音乐、连麦都会影响识别效果。
 - **关键词匹配不是语义理解**：换个说法讲到了要点，关键词没写到就会被判“没讲”。大模型审核可以补充一部分，但也会误判。
-- **系统声音**：“整个播放设备”会混入电脑上的所有声音。“只听一个程序”需要 Windows 11（Windows 10 没有这个系统功能），并且只能采到这个程序送到默认播放设备的声音：在 Windows 的“应用音量和设备首选项”里给它单独指定了别的输出设备时，只能收到静音，程序会提醒“没有收到声音”。只用本机测试程序播放的声音和演示音频测过，还没有用真实的微信视频号试过。macOS 不能直接采集系统声音，需要安装 BlackHole 等虚拟声卡（尚未测试）。
+- **系统声音**：“整个播放设备”会混入电脑上的所有声音。“只听一个程序”需要 Windows 11（Windows 10 没有这个系统功能），并且只能采到这个程序送到默认播放设备的声音：在 Windows 的“应用音量和设备首选项”里给它单独指定了别的输出设备时，只能收到静音，程序会提醒“没有收到声音”。只用本机测试程序播放的声音和演示音频测过，还没有用真实的微信视频号试过。macOS 不能直接采集系统声音，需要安装 BlackHole 等虚拟声卡（尚未测试）；用 macOS 自带的录屏接口直接采集要在真的 Mac 上点“允许”才能验证，暂时没做。
 - **直播间链接**需要电脑上装有 Edge 或 Chrome（Windows 10/11 自带 Edge）。只试过抖音、快手、B 站、斗鱼、虎牙各一两个直播间，每次几十秒到一分半。“登录平台账号”只用本机模拟的网站测过，还没有用真实的淘宝账号试过登录后能不能取到声音；网站如果把登录和浏览器的其他信息绑在一起校验，带上 Cookie 也可能不够。视频号这类没有网页版的只能用“系统声音”。从网页取声音时后台浏览器一直在播放，比直接拉流多占一些 CPU 和内存。平台改版可能让某个平台失效，这时改用“系统声音”。
 - **网络代理**：拉流时按系统代理设置走（和浏览器一致），只支持 HTTP 代理。
-- 同一时间只能盯一场；还没有安装包，需要按上面的步骤从源码运行。
+- 同一时间只能盯一场，也只能开一个程序（再打开会提示已经在运行）。
+- **安装包**没有数字签名，Windows 和 Mac 第一次打开都要手动确认一次（见“安装”）。Mac 版不能采集电脑上播放的声音（“系统声音”），只能用直播间链接、麦克风和音频文件；Mac 版只在 GitHub 的 Mac 机器上自动检查过（分析演示音频、打开窗口），没有在真的 Mac 上用过。
 - 演示音频由 Windows 自带的中文语音合成，仅用于体验和测试。
