@@ -55,6 +55,31 @@ export function Meter({ value, label, tall }: { value: number; label: string; ta
   );
 }
 
+/** 输入音量：一排由低到高的竖条，像调音台的电平表。level 是 dBFS，-60 以下算没声音。 */
+export function LevelBars({ level, bars = 14 }: { level: number; bars?: number }) {
+  const ratio = Math.max(0, Math.min(1, (level + 60) / 60));
+  const lit = Math.round(ratio * bars);
+  return (
+    <div
+      className="level-bars"
+      role="meter"
+      aria-label="输入音量"
+      aria-valuemin={-60}
+      aria-valuemax={0}
+      aria-valuenow={Math.round(Math.max(-60, level))}
+      title={level <= -60 ? "没有声音" : `输入音量 ${Math.round(level)} dB`}
+    >
+      {Array.from({ length: bars }, (_, index) => (
+        <span
+          key={index}
+          className={index < lit ? (index >= bars - 2 ? "on hot" : "on") : undefined}
+          style={{ height: `${30 + (index / (bars - 1)) * 70}%` }}
+        />
+      ))}
+    </div>
+  );
+}
+
 export function Empty({ icon, children }: { icon?: ReactNode; children: ReactNode }) {
   return (
     <div className="empty">

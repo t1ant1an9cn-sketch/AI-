@@ -536,60 +536,48 @@ function StageEditor({
         </button>
       </div>
       <div className="body">
+        {stage.points.length > 0 && (
+          <div className="point-grid point-head" aria-hidden>
+            <span>要点</span>
+            <span>关键词（说到任意一个就算讲到一次）</span>
+            <span>至少提到</span>
+            <span>必讲</span>
+            <span />
+          </div>
+        )}
         {stage.points.map((point, index) => (
-          <div className="point-box" key={point.id}>
-            <div className="stack">
-              <div className="row wrap" style={{ alignItems: "flex-end" }}>
-                <div className="field grow">
-                  <label>要点</label>
-                  <input
-                    className="input"
-                    value={point.name}
-                    placeholder="例如：材质"
-                    onChange={(event) => setPoint(index, { ...point, name: event.target.value })}
-                  />
-                </div>
-                <div className="field">
-                  <label>至少提到</label>
-                  <div className="row">
-                    <NumberInput
-                      label="至少提到次数"
-                      value={point.min_mentions}
-                      min={1}
-                      max={20}
-                      onChange={(min_mentions) => setPoint(index, { ...point, min_mentions })}
-                    />
-                    <span className="muted">次</span>
-                  </div>
-                </div>
-                <label className="check" style={{ height: 34 }}>
-                  <input
-                    type="checkbox"
-                    checked={point.required}
-                    onChange={(event) => setPoint(index, { ...point, required: event.target.checked })}
-                  />
-                  必讲
-                </label>
-              </div>
-              <div className="field">
-                <label>关键词</label>
-                <TagInput
-                  label="要点关键词"
-                  value={point.keywords}
-                  placeholder="说到任意一个就算讲到，例如：316不锈钢、食品级"
-                  onChange={(keywords) => setPoint(index, { ...point, keywords })}
-                />
-              </div>
-              <div className="field">
-                <label>应该怎么讲</label>
-                <input
-                  className="input"
-                  value={point.description}
-                  placeholder="给大模型和提醒用的说明，例如：说明内胆是 316 食品级不锈钢"
-                  onChange={(event) => setPoint(index, { ...point, description: event.target.value })}
-                />
-              </div>
+          <div className="point-grid point-edit" key={point.id}>
+            <input
+              className="input point-name"
+              aria-label="要点名称"
+              value={point.name}
+              placeholder="例如：材质"
+              onChange={(event) => setPoint(index, { ...point, name: event.target.value })}
+            />
+            <TagInput
+              label="要点关键词"
+              value={point.keywords}
+              placeholder="例如：316不锈钢、食品级"
+              onChange={(keywords) => setPoint(index, { ...point, keywords })}
+            />
+            <div className="row nowrap">
+              <NumberInput
+                label="至少提到次数"
+                value={point.min_mentions}
+                min={1}
+                max={20}
+                onChange={(min_mentions) => setPoint(index, { ...point, min_mentions })}
+              />
+              <span className="muted">次</span>
             </div>
+            <label className="check required-check" title="必讲：漏讲时提醒">
+              <input
+                type="checkbox"
+                aria-label="必讲"
+                checked={point.required}
+                onChange={(event) => setPoint(index, { ...point, required: event.target.checked })}
+              />
+            </label>
             <div className="tools">
               <button
                 className="icon-btn"
@@ -616,6 +604,13 @@ function StageEditor({
                 <Trash2 size={15} />
               </button>
             </div>
+            <input
+              className="input point-desc"
+              aria-label="应该怎么讲"
+              value={point.description}
+              placeholder="应该怎么讲（选填，给大模型和提醒用），例如：说明内胆是 316 食品级不锈钢"
+              onChange={(event) => setPoint(index, { ...point, description: event.target.value })}
+            />
           </div>
         ))}
         <div>

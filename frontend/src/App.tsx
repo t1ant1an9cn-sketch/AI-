@@ -156,51 +156,64 @@ export function App() {
   return (
     <AppContext.Provider value={context}>
       <div className="app">
-        <header className="topbar">
+        <aside className="sidebar">
           <div className="brand">
             <span className="brand-mark">
-              <AudioWaveform size={17} />
+              <AudioWaveform size={18} />
             </span>
-            AI 盯播助手
+            <span className="brand-text">
+              <span className="brand-name">AI 盯播助手</span>
+              <span className="brand-sub">直播讲解实时提醒</span>
+            </span>
           </div>
           <nav className="nav" aria-label="主菜单">
             {NAV.map((item) => (
               <a
                 key={item.path}
                 href={`#/${item.path}`}
+                title={item.label}
                 aria-current={page === item.path ? "page" : undefined}
                 onClick={(event) => {
                   event.preventDefault();
                   navigate(`/${item.path}`);
                 }}
               >
-                <item.icon size={16} aria-hidden />
-                {item.label}
-                {item.path === "monitor" && running && <span className="live-dot" title="正在盯播" />}
+                <item.icon size={18} aria-hidden />
+                <span className="nav-label">{item.label}</span>
+                {item.path === "monitor" && running && (
+                  <span className="on-air-chip" title="正在盯播">
+                    <span className="dot live pulse" />
+                    <span className="nav-label">直播中</span>
+                  </span>
+                )}
               </a>
             ))}
           </nav>
-          <div className="topbar-end">
+          <div className="sidebar-foot">
             {!connected && (
-              <span className="connection" role="status">
+              <span className="connection" role="status" title="未连接本地服务，正在重试……">
                 <span className="dot critical" />
-                未连接本地服务，正在重试……
+                <span className="nav-label">未连接，正在重试……</span>
               </span>
             )}
             <button
-              className="icon-btn"
+              className="theme-btn"
               type="button"
               title={`外观：${THEME_LABEL[theme]}（点击切换）`}
               onClick={() => setTheme(THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length])}
             >
-              <ThemeIcon size={17} />
+              <ThemeIcon size={16} />
+              <span className="nav-label">{THEME_LABEL[theme]}</span>
             </button>
+            {info?.version && <span className="version nav-label">版本 {info.version}</span>}
           </div>
-        </header>
-        {page === "frameworks" && <FrameworksPage />}
-        {page === "history" && <HistoryPage />}
-        {page === "settings" && <SettingsPage />}
-        {page === "monitor" && <MonitorPage />}
+        </aside>
+        <main className="main">
+          {page === "frameworks" && <FrameworksPage />}
+          {page === "history" && <HistoryPage />}
+          {page === "settings" && <SettingsPage />}
+          {page === "monitor" && <MonitorPage />}
+        </main>
       </div>
       <div className="toasts" aria-live="assertive">
         {toasts.map((item) => (

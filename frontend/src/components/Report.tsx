@@ -1,5 +1,5 @@
-import { Bot, ChevronDown, ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { Bot, Check, ChevronDown, ChevronRight, Circle, CircleAlert, Minus, X } from "lucide-react";
+import { type ReactNode, useState } from "react";
 
 import { bySeverity, clock, percent } from "../format";
 import type { Alert, Finding, LlmReview, Metrics, PaceRules, PointCoverage } from "../types";
@@ -12,17 +12,19 @@ function rateStatus(rate: number | null, pace: PaceRules): [Tone, string] {
   return ["good", "正常"];
 }
 
-/** 窗口指标：语速、说话占比、冷场、口头禅；extra 为 true 时再加违规次数（历史复盘用）。 */
+/** 窗口指标：语速、说话占比、冷场、口头禅；给了 forbidden 时再加违规次数（历史复盘用），extra 放在最后一格。 */
 export function MetricTiles({
   metrics,
   pace,
   forbidden,
   wide,
+  extra,
 }: {
   metrics: Metrics;
   pace: PaceRules;
   forbidden?: number;
   wide?: boolean;
+  extra?: ReactNode;
 }) {
   const [rateTone, rateText] = rateStatus(metrics.rate, pace);
   const lowSpeech = metrics.window_seconds >= 60 && metrics.speech_ratio < pace.min_speech_ratio;
@@ -81,6 +83,35 @@ export function MetricTiles({
           <Status tone={forbidden ? "critical" : "good"}>{forbidden ? "需要整改" : "没有"}</Status>
         </div>
       )}
+      {extra}
+    </div>
+  );
+}
+
+const CHIP_ICON = { covered: Check, insufficient: CircleAlert, missing: X, unchecked: Minus, pending: Circle };
+
+/** 要点进度：每个要点一个小标签，盯播时一眼看出哪些已经讲了、哪些还没讲。 */
+export function CoverageChips({ coverage, judged }: { coverage: PointCoverage[]; judged: boolean }) {
+  if (!coverage.length) return <span className="muted small">这个话术框架没有设置要点</span>;
+  return (
+    <div className="chips">
+      {coverage.map((item) => {
+        // 窗口未满时，“没讲”只是“还没讲到”，不按问题显示。
+        const state = item.status === "missing" && !judged ? "pending" : item.status;
+        const label = state === "pending" ? "还没讲到" : COVERAGE[item.status].label;
+        const Icon = CHIP_ICON[state];
+        return (
+          <span
+            key={item.point_id}
+            className={`chip ${state}${item.required ? "" : " optional"}`}
+            title={`${item.stage_name} › ${item.point_name}：${label}，${item.mentions}/${item.min_mentions} 次${item.required ? "" : "（选讲）"}`}
+          >
+            <Icon size={13} aria-hidden />
+            {item.point_name}
+            <span className="sr-only">：{label}</span>
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -281,15 +312,16 @@ export function AlertList({
     <div className="alerts" aria-live="polite">
       {items.map((alert, index) => (
         <div
-          className={`alert-item${highlightNew && index === 0 ? " new" : ""}`}
+          className={`alert-item ${alert.severity}${highlightNew && index === 0 ? " new" : ""}`}
           key={alert.id ?? `${alert.time}-${alert.title}`}
         >
           <SeverityIcon severity={alert.severity} />
           <div className="grow">
             <div className="head">
               <span className="title">{alert.title}</span>
-              <span className="muted small tabular nowrap">
-                {SOURCE_LABEL[alert.source]} · <TimeLink seconds={alert.time} onSeek={onSeek} />
+              <span className="meta tabular nowrap">
+                <span className={`source-tag ${alert.source}`}>{SOURCE_LABEL[alert.source]}</span>
+                <TimeLink seconds={alert.time} onSeek={onSeek} />
               </span>
             </div>
             <div className="detail">{alert.detail}</div>

@@ -18,24 +18,24 @@ import {
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { api, desktop } from "../api";
-import { AlertList, CoverageList, FindingList, LlmPanel, MetricTiles } from "../components/Report";
+import { AlertList, CoverageChips, CoverageList, FindingList, LlmPanel, MetricTiles } from "../components/Report";
 import { RateChart } from "../components/RateChart";
 import { Transcript, TranscriptLegend } from "../components/Transcript";
-import { Empty, Meter, Notice, Segmented, Status } from "../components/ui";
+import { Empty, LevelBars, Meter, Notice, Status } from "../components/ui";
 import { useApp } from "../context";
 import { clock, megabytes, span } from "../format";
 import { clearPrefill, readPrefill } from "../prefill";
 import { unlockSound } from "../sound";
-import type { Device, FrameworkSummary, ModelStatus, Snapshot, SourceSpec, WindowReport } from "../types";
+import type { Alert, Device, FrameworkSummary, ModelStatus, Snapshot, SourceSpec, WindowReport } from "../types";
 
 type SourceKind = "loopback" | "microphone" | "file" | "url" | "demo";
 
-const SOURCES: { value: SourceKind; label: string; icon: ReactNode }[] = [
-  { value: "loopback", label: "系统声音", icon: <Speaker size={15} /> },
-  { value: "microphone", label: "麦克风", icon: <Mic size={15} /> },
-  { value: "file", label: "音频文件", icon: <FileAudio size={15} /> },
-  { value: "url", label: "直播间链接", icon: <Link size={15} /> },
-  { value: "demo", label: "演示音频", icon: <Sparkles size={15} /> },
+const SOURCES: { value: SourceKind; label: string; desc: string; icon: ReactNode }[] = [
+  { value: "url", label: "直播间链接", desc: "粘贴链接就能盯", icon: <Link size={20} /> },
+  { value: "loopback", label: "系统声音", desc: "电脑正在播放的声音", icon: <Speaker size={20} /> },
+  { value: "microphone", label: "麦克风", desc: "主播自己的声音", icon: <Mic size={20} /> },
+  { value: "file", label: "音频文件", desc: "复盘录播或录音", icon: <FileAudio size={20} /> },
+  { value: "demo", label: "演示音频", desc: "3 分钟示例讲解", icon: <Sparkles size={20} /> },
 ];
 const WINDOWS = [60, 120, 180, 300, 600, 900, 1800];
 const INTERVALS = [15, 30, 60, 120, 300];
@@ -145,9 +145,10 @@ function Setup({ onStarted }: { onStarted(): void }) {
   const engineReady =
     engine === "xfyun" ? Boolean(settings?.asr.xfyun_app_id && settings?.asr.xfyun_api_key) : Boolean(modelStatus?.installed);
   const listed = (devices ?? []).filter((device) => device.kind === kind);
+  const deviceKind = kind === "loopback" || kind === "microphone";
 
   let sourceProblem = "";
-  if (kind === "loopback" || kind === "microphone") {
+  if (deviceKind) {
     if (devices !== null && !listed.length) sourceProblem = kind === "loopback" ? "没有找到可采集的播放设备" : "没有找到麦克风";
   } else if (kind === "file" && !file) sourceProblem = "请先选择音频文件";
   else if (kind === "url" && !LINK.test(url.trim())) sourceProblem = "请粘贴直播间链接或直播流地址";
@@ -183,7 +184,7 @@ function Setup({ onStarted }: { onStarted(): void }) {
     setStarting(true);
     setError("");
     let source: SourceSpec;
-    if (kind === "loopback" || kind === "microphone") {
+    if (deviceKind) {
       const device = listed.find((d) => d.id === deviceChoice[kind]);
       source = { kind: "device", device_id: device?.id ?? null, device_name: device?.name ?? "", loopback: kind === "loopback" };
     } else if (kind === "file") source = { kind: "file", path: file!.path, realtime: fileRealtime };
@@ -210,28 +211,168 @@ function Setup({ onStarted }: { onStarted(): void }) {
 
   const selected = frameworks?.find((item) => item.id === frameworkId);
   // 只录实时来源；文件本来就在磁盘上
-  const liveSource = kind === "loopback" || kind === "microphone" || kind === "url";
+  const liveSource = deviceKind || kind === "url";
   const recordHint: { tone: "good" | "neutral"; label: string } = !settings?.monitor.save_audio
-    ? { tone: "neutral", label: "不保存（可在设置里开启）" }
+    ? { tone: "neutral", label: "不保存" }
     : liveSource
-      ? { tone: "good", label: "会保存到本机" }
-      : { tone: "neutral", label: "音频文件不另存录音" };
+      ? { tone: "good", label: "保存到本机" }
+      : { tone: "neutral", label: "文件不另存" };
+  const sourceDetail =
+    kind === "url"
+      ? url.trim() || "还没填链接"
+      : kind === "file"
+        ? (file?.name ?? "还没选文件")
+        : kind === "demo"
+          ? "保温杯讲解（合成语音）"
+          : (listed.find((device) => device.id === deviceChoice[kind])?.name ?? "还没选设备");
 
   return (
     <div className="page">
       <div className="setup">
-        <section className="card">
-          <div className="card-head">
-            <h2>开始盯播</h2>
-          </div>
-          <div className="card-body stack loose">
-            <div className="field">
-              <div className="row between">
-                <label htmlFor="framework">话术框架</label>
-                <button className="link-btn small" type="button" onClick={() => navigate("/frameworks")}>
-                  管理话术框架
-                </button>
+        <div className="setup-main">
+          <header className="page-title">
+            <h1>开始盯播</h1>
+            <p className="secondary">选好从哪里听、按什么标准盯，就可以开始。</p>
+          </header>
+
+          <section className="card step">
+            <div className="step-head">
+              <span className="step-no">1</span>
+              <div className="grow">
+                <h2>听哪里</h2>
+                <p className="muted small">直播间链接最省事：不用开着浏览器，也不会混进电脑上的其他声音。</p>
               </div>
+            </div>
+            <div className="source-grid" role="radiogroup" aria-label="音频来源">
+              {SOURCES.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={option.value === kind}
+                  className="source-tile"
+                  onClick={() => setKind(option.value)}
+                >
+                  <span className="tile-icon">{option.icon}</span>
+                  <span className="tile-name">
+                    {option.label}
+                    {option.value === "url" && <span className="reco">推荐</span>}
+                  </span>
+                  <span className="tile-desc">{option.desc}</span>
+                </button>
+              ))}
+            </div>
+            <div className="source-pane">
+              {deviceKind && (
+                <>
+                  {kind === "loopback" && info && !info.loopback_supported && (
+                    <Notice tone="warning">
+                      macOS 不能直接采集系统声音。请安装 BlackHole 等虚拟声卡，把直播间声音输出到它，再在“麦克风”里选择它。
+                    </Notice>
+                  )}
+                  <div className="row">
+                    <select
+                      className="select grow"
+                      aria-label="选择设备"
+                      value={deviceChoice[kind]}
+                      onChange={(event) => setDeviceChoice({ ...deviceChoice, [kind]: event.target.value })}
+                      disabled={!devices || !listed.length}
+                    >
+                      {devices === null && <option>正在读取设备……</option>}
+                      {listed.map((device) => (
+                        <option key={device.id} value={device.id}>
+                          {device.name}
+                          {device.default ? "（默认）" : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <button className="icon-btn" type="button" title="重新读取设备" onClick={loadDevices}>
+                      <RefreshCw size={16} />
+                    </button>
+                  </div>
+                  {deviceError && <Notice tone="critical">{deviceError}</Notice>}
+                  <span className="help">
+                    {kind === "loopback"
+                      ? "先在浏览器或直播伴侣里打开要盯的直播间，确认声音从这个设备播放出来。电脑上的其他声音也会被一起识别。适合需要登录才能看、或者没有网页版的直播。"
+                      : "适合主播在自己的电脑上使用，直接采集主播的声音。"}
+                  </span>
+                </>
+              )}
+              {kind === "file" && (
+                <>
+                  <div className="row">
+                    <button className="btn" type="button" onClick={chooseFile} disabled={uploading}>
+                      {uploading ? <LoaderCircle size={15} className="spin" /> : <FolderOpen size={15} />}
+                      {uploading ? "正在读取……" : "选择文件"}
+                    </button>
+                    <span className="grow secondary ellipsis">
+                      {file ? file.name : "支持 mp3、wav、m4a、flac，以及 mp4、flv 等视频文件"}
+                    </span>
+                  </div>
+                  <input
+                    ref={fileInput}
+                    type="file"
+                    accept="audio/*,video/*,.flv,.ts,.mkv"
+                    hidden
+                    onChange={(event) => upload(event.target.files?.[0])}
+                  />
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={fileRealtime}
+                      onChange={(event) => setFileRealtime(event.target.checked)}
+                    />
+                    按实际速度播放（模拟盯直播；不勾选则尽快分析完，适合复盘录播）
+                  </label>
+                </>
+              )}
+              {kind === "url" && (
+                <>
+                  <input
+                    className="input large"
+                    aria-label="直播间链接"
+                    placeholder="粘贴直播间链接，例如 https://live.douyin.com/…，分享口令也可以"
+                    value={url}
+                    onChange={(event) => setUrl(event.target.value)}
+                  />
+                  <span className="help">
+                    抖音、快手、B 站、斗鱼、虎牙等平台的网页直播间都可以，打开需要几秒到二十几秒。需要登录才能看的直播间暂不支持，请改用“系统声音”。也可以直接填
+                    flv、m3u8、rtmp 直播流地址。
+                  </span>
+                </>
+              )}
+              {kind === "demo" && (
+                <>
+                  <span>
+                    内置一段约 3 分钟的保温杯带货讲解（电脑合成语音），其中故意包含违规词、站外导流、冷场和漏讲的要点，用来体验各种提醒。
+                  </span>
+                  <span className="help">建议搭配“保温杯讲解（示例）”框架，分析过去 1 分钟。</span>
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={demoRealtime}
+                      onChange={(event) => setDemoRealtime(event.target.checked)}
+                    />
+                    按实际速度播放（不勾选则几秒内分析完）
+                  </label>
+                </>
+              )}
+            </div>
+          </section>
+
+          <section className="card step">
+            <div className="step-head">
+              <span className="step-no">2</span>
+              <div className="grow">
+                <h2>按什么标准盯</h2>
+                <p className="muted small">话术框架规定要讲哪些要点、哪些话不能说。</p>
+              </div>
+              <button className="btn small ghost" type="button" onClick={() => navigate("/frameworks")}>
+                管理话术框架
+              </button>
+            </div>
+            <div className="field">
+              <label htmlFor="framework">话术框架</label>
               <select
                 id="framework"
                 className="select"
@@ -262,222 +403,117 @@ function Setup({ onStarted }: { onStarted(): void }) {
                 </Notice>
               )}
             </div>
-
             <div className="field">
-              <span className="field-label">音频来源</span>
-              <Segmented<SourceKind> label="音频来源" value={kind} options={SOURCES} onChange={setKind} />
-              <div className="source-pane">
-                {(kind === "loopback" || kind === "microphone") && (
-                  <>
-                    {kind === "loopback" && info && !info.loopback_supported && (
-                      <Notice tone="warning">
-                        macOS 不能直接采集系统声音。请安装 BlackHole 等虚拟声卡，把直播间声音输出到它，再在“麦克风”里选择它。
-                      </Notice>
-                    )}
-                    <div className="row">
-                      <select
-                        className="select grow"
-                        aria-label="选择设备"
-                        value={deviceChoice[kind]}
-                        onChange={(event) => setDeviceChoice({ ...deviceChoice, [kind]: event.target.value })}
-                        disabled={!devices || !listed.length}
-                      >
-                        {devices === null && <option>正在读取设备……</option>}
-                        {listed.map((device) => (
-                          <option key={device.id} value={device.id}>
-                            {device.name}
-                            {device.default ? "（默认）" : ""}
-                          </option>
-                        ))}
-                      </select>
-                      <button className="icon-btn" type="button" title="重新读取设备" onClick={loadDevices}>
-                        <RefreshCw size={16} />
-                      </button>
-                    </div>
-                    {deviceError && <Notice tone="critical">{deviceError}</Notice>}
-                    <span className="help secondary small">
-                      {kind === "loopback"
-                        ? "先在浏览器或直播伴侣里打开要盯的直播间，确认声音从这个设备播放出来。注意：电脑上的其他声音也会被一起识别。"
-                        : "适合主播在自己的电脑上使用，直接采集主播的声音。"}
-                    </span>
-                  </>
-                )}
-                {kind === "file" && (
-                  <>
-                    <div className="row">
-                      <button className="btn" type="button" onClick={chooseFile} disabled={uploading}>
-                        {uploading ? <LoaderCircle size={15} className="spin" /> : <FolderOpen size={15} />}
-                        {uploading ? "正在读取……" : "选择文件"}
-                      </button>
-                      <span className="grow secondary nowrap" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {file ? file.name : "支持 mp3、wav、m4a、flac，以及 mp4、flv 等视频文件"}
-                      </span>
-                    </div>
-                    <input
-                      ref={fileInput}
-                      type="file"
-                      accept="audio/*,video/*,.flv,.ts,.mkv"
-                      hidden
-                      onChange={(event) => upload(event.target.files?.[0])}
-                    />
-                    <label className="check">
-                      <input
-                        type="checkbox"
-                        checked={fileRealtime}
-                        onChange={(event) => setFileRealtime(event.target.checked)}
-                      />
-                      按实际速度播放（模拟盯直播；不勾选则尽快分析完，适合复盘录播）
-                    </label>
-                  </>
-                )}
-                {kind === "url" && (
-                  <>
-                    <input
-                      className="input"
-                      aria-label="直播间链接"
-                      placeholder="粘贴直播间链接，例如 https://live.douyin.com/…，分享口令也可以"
-                      value={url}
-                      onChange={(event) => setUrl(event.target.value)}
-                    />
-                    <span className="help secondary small">
-                      抖音、快手、B 站、斗鱼、虎牙等平台的网页直播间都可以：程序在后台打开直播间取声音，不用开着浏览器，
-                      电脑上的其他声音也不会混进来。打开需要几秒到二十几秒。需要登录才能看的直播间暂不支持，可改用“系统声音”。
-                      也可以直接填 flv、m3u8、rtmp 直播流地址。
-                    </span>
-                  </>
-                )}
-                {kind === "demo" && (
-                  <>
-                    <span>
-                      内置一段约 3 分钟的保温杯带货讲解（电脑合成语音），其中故意包含违规词、站外导流、冷场和漏讲的要点，用来体验各种提醒。
-                    </span>
-                    <span className="help secondary small">建议搭配“保温杯讲解（示例）”框架，分析窗口选 1 分钟。</span>
-                    <label className="check">
-                      <input
-                        type="checkbox"
-                        checked={demoRealtime}
-                        onChange={(event) => setDemoRealtime(event.target.checked)}
-                      />
-                      按实际速度播放（不勾选则几秒内分析完）
-                    </label>
-                  </>
-                )}
-              </div>
-            </div>
-
-            <div className="field">
-              <label htmlFor="title">场次名称（可选）</label>
-              <input
-                id="title"
-                className="input"
-                placeholder="例如：周五晚场·保温杯专场"
-                value={title}
-                maxLength={100}
-                onChange={(event) => setTitle(event.target.value)}
-              />
-            </div>
-
-            {error && <Notice tone="critical">{error}</Notice>}
-            <div className="row">
-              <button className="btn primary large" type="button" disabled={!canStart} onClick={start}>
-                {starting ? <LoaderCircle size={17} className="spin" /> : <Play size={17} />}
-                {starting ? (kind === "url" ? "正在打开直播间……" : "正在启动……") : "开始盯播"}
-              </button>
-              {sourceProblem && devices !== null && <span className="muted small">{sourceProblem}</span>}
-            </div>
-          </div>
-        </section>
-
-        <div className="stack">
-          <section className="card">
-            <div className="card-head">
-              <h3>分析方式</h3>
-            </div>
-            <div className="card-body stack">
-              <div className="grid-2">
-                <div className="field">
-                  <label htmlFor="interval">每隔</label>
-                  <select
-                    id="interval"
-                    className="select"
-                    value={intervalSeconds}
-                    onChange={(event) => setIntervalSeconds(Number(event.target.value))}
-                  >
-                    {withCurrent(INTERVALS, intervalSeconds).map((value) => (
-                      <option key={value} value={value}>
-                        {span(value)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="field">
-                  <label htmlFor="window">分析过去</label>
-                  <select
-                    id="window"
-                    className="select"
-                    value={windowSeconds}
-                    onChange={(event) => setWindowSeconds(Number(event.target.value))}
-                  >
-                    {withCurrent(WINDOWS, windowSeconds).map((value) => (
-                      <option key={value} value={value}>
-                        {span(value)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              <span className="field-label">分析节奏</span>
+              <div className="cadence">
+                每
+                <select
+                  id="interval"
+                  className="select inline"
+                  aria-label="每隔多久分析一次"
+                  value={intervalSeconds}
+                  onChange={(event) => setIntervalSeconds(Number(event.target.value))}
+                >
+                  {withCurrent(INTERVALS, intervalSeconds).map((value) => (
+                    <option key={value} value={value}>
+                      {span(value)}
+                    </option>
+                  ))}
+                </select>
+                分析一次过去
+                <select
+                  id="window"
+                  className="select inline"
+                  aria-label="每次分析过去多久"
+                  value={windowSeconds}
+                  onChange={(event) => setWindowSeconds(Number(event.target.value))}
+                >
+                  {withCurrent(WINDOWS, windowSeconds).map((value) => (
+                    <option key={value} value={value}>
+                      {span(value)}
+                    </option>
+                  ))}
+                </select>
+                的讲解
               </div>
               {intervalSeconds > windowSeconds ? (
                 <Notice tone="warning">分析间隔不能大于分析窗口。</Notice>
               ) : (
-                <p className="secondary">
-                  每 {span(intervalSeconds)}对过去 {span(windowSeconds)}的讲解做一次分析：语速、冷场、说话占比、口头禅、要点有没有讲到。违规表达和冷场不等分析，出现时立即提醒。
-                </p>
-              )}
-            </div>
-          </section>
-
-          <section className="card">
-            <div className="card-head">
-              <h3>识别与审核</h3>
-              <button className="link-btn small" type="button" onClick={() => navigate("/settings")}>
-                设置
-              </button>
-            </div>
-            <div className="card-body stack">
-              <EngineStatus
-                engine={engine}
-                model={modelStatus}
-                ready={engineReady}
-                onDownload={() => api.downloadModel().then(setModel).catch((reason: Error) => setError(reason.message))}
-                onSettings={() => navigate("/settings")}
-              />
-              <div className="row">
-                <Bot size={16} aria-hidden />
-                <span className="grow">大模型语义审核</span>
-                {settings?.llm.enabled ? (
-                  <Status tone="good">已开启（{settings.llm.model}）</Status>
-                ) : (
-                  <Status tone="neutral">未开启</Status>
-                )}
-              </div>
-              {!settings?.llm.enabled && (
-                <span className="help secondary small">
-                  只靠关键词也能工作。开启后，大模型会额外判断说错价格、卖点讲得含糊等关键词发现不了的问题。
-                </span>
-              )}
-              <div className="row">
-                <AudioLines size={16} aria-hidden />
-                <span className="grow">录音</span>
-                <Status tone={recordHint.tone}>{recordHint.label}</Status>
-              </div>
-              {settings?.monitor.save_audio && liveSource && (
-                <span className="help secondary small">
-                  录音只存在本机，复盘时可以边听边核对，也能用它重新分析。约每小时 115 MB。
+                <span className="help">
+                  每次分析语速、冷场、说话占比、口头禅和要点有没有讲到；违规表达和冷场出现时立即提醒，不等分析。
                 </span>
               )}
             </div>
           </section>
         </div>
+
+        <aside className="card launch">
+          <h2>准备开播</h2>
+          <dl className="launch-facts">
+            <div>
+              <dt>听</dt>
+              <dd>
+                <span>{SOURCES.find((option) => option.value === kind)?.label}</span>
+                <span className="sub ellipsis" title={sourceDetail}>
+                  {sourceDetail}
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt>标准</dt>
+              <dd>{selected?.name ?? "还没选话术框架"}</dd>
+            </div>
+            <div>
+              <dt>节奏</dt>
+              <dd>
+                每 {span(intervalSeconds)}分析过去 {span(windowSeconds)}
+              </dd>
+            </div>
+          </dl>
+          <div className="checks">
+            <EngineStatus
+              engine={engine}
+              model={modelStatus}
+              ready={engineReady}
+              onDownload={() => api.downloadModel().then(setModel).catch((reason: Error) => setError(reason.message))}
+              onSettings={() => navigate("/settings")}
+            />
+            <div className="check-row" title="开启后，大模型会额外判断说错价格、卖点讲得含糊等关键词发现不了的问题">
+              <Bot size={16} aria-hidden />
+              <span className="grow">大模型审核</span>
+              {settings?.llm.enabled ? (
+                <Status tone="good">{settings.llm.model}</Status>
+              ) : (
+                <Status tone="neutral">未开启</Status>
+              )}
+            </div>
+            <div className="check-row" title="录音只存在本机，复盘时可以边听边核对，也能用它重新分析。约每小时 115 MB。">
+              <AudioLines size={16} aria-hidden />
+              <span className="grow">录音</span>
+              <Status tone={recordHint.tone}>{recordHint.label}</Status>
+            </div>
+            <button className="link-btn small" type="button" onClick={() => navigate("/settings")}>
+              修改设置
+            </button>
+          </div>
+          <div className="field">
+            <label htmlFor="title">场次名称（可选）</label>
+            <input
+              id="title"
+              className="input"
+              placeholder="例如：周五晚场·保温杯专场"
+              value={title}
+              maxLength={100}
+              onChange={(event) => setTitle(event.target.value)}
+            />
+          </div>
+          {error && <Notice tone="critical">{error}</Notice>}
+          <button className="btn primary xl" type="button" disabled={!canStart} onClick={start}>
+            {starting ? <LoaderCircle size={18} className="spin" /> : <Play size={18} />}
+            {starting ? (kind === "url" ? "正在打开直播间……" : "正在启动……") : "开始盯播"}
+          </button>
+          {sourceProblem && (!deviceKind || devices !== null) && <span className="launch-hint">{sourceProblem}</span>}
+        </aside>
       </div>
     </div>
   );
@@ -498,8 +534,9 @@ function EngineStatus({
 }) {
   if (engine === "xfyun") {
     return (
-      <div className="row">
-        <span className="grow">语音识别：讯飞实时转写（云端）</span>
+      <div className="check-row">
+        <Mic size={16} aria-hidden />
+        <span className="grow">识别：讯飞（云端）</span>
         {ready ? (
           <Status tone="good">已配置</Status>
         ) : (
@@ -511,10 +548,11 @@ function EngineStatus({
     );
   }
   return (
-    <div className="stack tight">
-      <div className="row">
-        <span className="grow">语音识别：SenseVoice（本地，不联网）</span>
-        {ready && <Status tone="good">模型已就绪</Status>}
+    <>
+      <div className="check-row">
+        <Mic size={16} aria-hidden />
+        <span className="grow">识别：SenseVoice（本地）</span>
+        {ready && <Status tone="good">已就绪</Status>}
         {!ready && model && !model.downloading && (
           <button className="btn small primary" type="button" onClick={onDownload}>
             <Download size={14} />
@@ -532,9 +570,9 @@ function EngineStatus({
       )}
       {!ready && model?.error && <Notice tone="critical">{model.error}</Notice>}
       {!ready && !model?.downloading && (
-        <span className="help secondary small">第一次使用需要下载识别模型，下载后完全在本机运行。</span>
+        <span className="help">第一次使用需要下载识别模型，下载后完全在本机运行。</span>
       )}
-    </div>
+    </>
   );
 }
 
@@ -546,10 +584,31 @@ const STATE_LABEL: Record<Snapshot["state"], string> = {
   failed: "出错了",
 };
 
+const SEVERITY_ORDER = ["high", "medium", "low"] as const;
+const SEVERITY_LABEL = { high: "严重", medium: "注意", low: "提示" };
+
+function SeverityCounts({ alerts }: { alerts: Alert[] }) {
+  const counts = { high: 0, medium: 0, low: 0 };
+  for (const alert of alerts) counts[alert.severity] += 1;
+  if (!alerts.length) return <span className="muted small">还没有</span>;
+  return (
+    <span className="sev-counts">
+      {SEVERITY_ORDER.filter((severity) => counts[severity]).map((severity) => (
+        <span key={severity} className={`sev-count ${severity}`}>
+          {SEVERITY_LABEL[severity]} {counts[severity]}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+type Tab = "transcript" | "analysis" | "rate";
+
 function LiveView({ session, level, onNewSession }: { session: Snapshot; level: number; onNewSession(): void }) {
   const { settings, navigate, setSession } = useApp();
   const [stopping, setStopping] = useState(false);
   const [choice, setChoice] = useState<string>("latest");
+  const [tab, setTab] = useState<Tab>("transcript");
   const running = session.state === "starting" || session.state === "running";
   const finished = session.state === "stopped" || session.state === "failed";
   const now = session.health.audio_time;
@@ -568,19 +627,31 @@ function LiveView({ session, level, onNewSession }: { session: Snapshot; level: 
   };
 
   const latest = session.reports[session.reports.length - 1] ?? null;
+  // 顶部的数字和要点：盯播中看最新一次分析，结束后看全场总结
+  const overview: WindowReport | null = finished && session.summary ? session.summary : latest;
   const report: WindowReport | null =
     choice === "summary"
       ? session.summary
       : choice === "latest"
         ? latest
         : (session.reports.find((r) => String(r.id) === choice) ?? latest);
-  const levelRatio = Math.max(0, Math.min(1, (level + 60) / 60));
+  const untilNext = clock(Math.max(0, session.next_report_at - now));
+  const alertTile = (
+    <div className="stat">
+      <span className="label">提醒</span>
+      <span className="value">
+        {session.alerts.length}
+        <small>条</small>
+      </span>
+      <SeverityCounts alerts={session.alerts} />
+    </div>
+  );
 
   return (
-    <div className="page fill">
-      <section className="card session-bar">
-        <span className="pill">
-          {session.state === "running" && <span className="dot good pulse" />}
+    <div className="page live">
+      <section className={`live-header ${session.state}`}>
+        <span className={`on-air ${session.state}`}>
+          {session.state === "running" && <span className="dot live pulse" />}
           {(session.state === "starting" || session.state === "stopping") && (
             <LoaderCircle size={14} className="spin" aria-hidden />
           )}
@@ -588,51 +659,48 @@ function LiveView({ session, level, onNewSession }: { session: Snapshot; level: 
           {session.state === "stopped" && <span className="dot" />}
           {STATE_LABEL[session.state]}
         </span>
-        <div className="grow">
-          <div className="title" title={session.title}>
-            {session.title}
-          </div>
+        <div className="live-title grow">
+          <h1 title={session.title}>{session.title}</h1>
           <div className="facts">
-            <span>框架：{session.framework.name}</span>
-            <span>来源：{session.source}</span>
-            {session.engine && <span>识别：{session.engine}</span>}
+            <span>{session.framework.name}</span>
+            {session.source !== session.title && <span>{session.source}</span>}
+            {session.engine && <span>{session.engine}</span>}
             <span>
               每 {span(session.interval_seconds)}分析过去 {span(session.window_seconds)}
             </span>
             {session.recording && <span>{running ? "录音中" : "已录音"}（只存本机）</span>}
           </div>
         </div>
-        {running && (
-          <div className="stack tight" style={{ alignItems: "flex-end" }}>
-            <div className="level" title="输入音量">
-              <Speaker size={14} aria-hidden className="muted" />
-              <Meter value={levelRatio} label="输入音量" />
-            </div>
-            {session.state === "running" && (
-              <span className="muted small tabular">下次分析：{clock(Math.max(0, session.next_report_at - now))} 后</span>
-            )}
+        {running && <LevelBars level={level} />}
+        <div className="live-figure">
+          <span className="label">已盯播</span>
+          <span className="value" title="已盯播时长（按音频计算）">
+            {clock(now)}
+          </span>
+        </div>
+        {session.state === "running" && (
+          <div className="live-figure secondary-figure">
+            <span className="label">下次分析</span>
+            <span className="value">{untilNext}</span>
           </div>
         )}
-        <div className="clock" title="已盯播时长（按音频计算）">
-          {clock(now)}
-        </div>
         {running && (
-          <button className="btn danger" type="button" onClick={stop} disabled={stopping || session.state !== "running"}>
+          <button className="btn danger large" type="button" onClick={stop} disabled={stopping || session.state !== "running"}>
             <Square size={15} />
             停止
           </button>
         )}
         {finished && (
-          <>
-            <button className="btn" type="button" onClick={() => navigate(`/history/${session.session_id}`)}>
-              <HistoryIcon size={15} />
+          <div className="row">
+            <button className="btn large" type="button" onClick={() => navigate(`/history/${session.session_id}`)}>
+              <HistoryIcon size={16} />
               查看复盘
             </button>
-            <button className="btn primary" type="button" onClick={onNewSession}>
-              <Plus size={15} />
+            <button className="btn primary large" type="button" onClick={onNewSession}>
+              <Plus size={16} />
               再来一场
             </button>
-          </>
+          </div>
         )}
       </section>
 
@@ -646,48 +714,87 @@ function LiveView({ session, level, onNewSession }: { session: Snapshot; level: 
         </Notice>
       )}
 
-      <div className="live-grid">
-        <section className="card transcript-card">
+      {overview ? (
+        <MetricTiles metrics={overview.metrics} pace={pace} wide extra={alertTile} />
+      ) : (
+        <div className="kpis pending">
+          {["语速", "说话时间占比", "冷场", "口头禅"].map((label) => (
+            <div className="stat" key={label}>
+              <span className="label">{label}</span>
+              <span className="value muted">—</span>
+              <span className="muted small">{running ? `${untilNext} 后第一次分析` : "没有分析"}</span>
+            </div>
+          ))}
+          {alertTile}
+        </div>
+      )}
+
+      <section className="card coverage-card">
+        <div className="coverage-head">
+          <h3>话术要点</h3>
+          {overview && (
+            <span className="muted small tabular">
+              {overview.final ? "全场" : `${clock(overview.start)}–${clock(overview.end)}`}
+              {!overview.full && !overview.final && `，窗口未满 ${span(session.window_seconds)}，暂不判断漏讲`}
+            </span>
+          )}
+        </div>
+        {overview ? (
+          <CoverageChips coverage={overview.coverage} judged={overview.full || overview.final} />
+        ) : (
+          <span className="muted small">第一次分析后，这里显示每个要点讲了没有。</span>
+        )}
+      </section>
+
+      <div className="live-main">
+        <section className="card alerts-card">
           <div className="card-head">
-            <h3>实时转写</h3>
-            <TranscriptLegend />
+            <h3>提醒</h3>
+            <SeverityCounts alerts={session.alerts} />
           </div>
-          <Transcript lines={session.segments} partial={session.partial} startedAt={session.started_at} live={running} />
+          <div className="card-body scroll">
+            <AlertList alerts={session.alerts} limit={100} highlightNew={running} />
+          </div>
         </section>
 
-        <div className="live-column">
-          <section className="card">
-            <div className="card-head">
-              <h3>提醒</h3>
-              <span className="hint">{session.alerts.length} 条</span>
+        <section className="card tabs-card">
+          <div className="card-head tabs-head">
+            <div className="tabs" role="tablist" aria-label="详细内容">
+              {(
+                [
+                  ["transcript", "实时转写"],
+                  ["analysis", report?.final ? "全场总结" : "分析详情"],
+                  ["rate", "语速变化"],
+                ] as [Tab, string][]
+              ).map(([value, label]) => (
+                <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)}>
+                  {label}
+                </button>
+              ))}
             </div>
-            <div className="card-body" style={{ maxHeight: 320, overflow: "auto", paddingTop: 4, paddingBottom: 4 }}>
-              <AlertList alerts={session.alerts} limit={50} highlightNew={running} />
-            </div>
-          </section>
-
-          <section className="card">
-            <div className="card-head">
-              <h3>{report?.final ? "全场总结" : "窗口分析"}</h3>
-              {(session.reports.length > 0 || session.summary) && (
-                <select
-                  className="select"
-                  style={{ width: "auto" }}
-                  aria-label="选择要查看的分析"
-                  value={choice}
-                  onChange={(event) => setChoice(event.target.value)}
-                >
-                  {session.summary && <option value="summary">全场总结</option>}
-                  <option value="latest">最新一次</option>
-                  {[...session.reports].reverse().map((r) => (
-                    <option key={r.id ?? r.end} value={String(r.id)}>
-                      {clock(r.start)}–{clock(r.end)}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-            <div className="card-body stack">
+            {tab === "transcript" && <TranscriptLegend />}
+            {tab === "analysis" && (session.reports.length > 0 || session.summary) && (
+              <select
+                className="select compact"
+                aria-label="选择要查看的分析"
+                value={choice}
+                onChange={(event) => setChoice(event.target.value)}
+              >
+                {session.summary && <option value="summary">全场总结</option>}
+                <option value="latest">最新一次</option>
+                {[...session.reports].reverse().map((r) => (
+                  <option key={r.id ?? r.end} value={String(r.id)}>
+                    {clock(r.start)}–{clock(r.end)}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          {tab === "transcript" && (
+            <Transcript lines={session.segments} partial={session.partial} startedAt={session.started_at} live={running} />
+          )}
+          {tab === "analysis" && (
+            <div className="card-body scroll stack">
               {report ? (
                 <>
                   <div className="row between">
@@ -700,34 +807,30 @@ function LiveView({ session, level, onNewSession }: { session: Snapshot; level: 
                   </div>
                   <MetricTiles metrics={report.metrics} pace={pace} />
                   <div>
-                    <h4 style={{ marginBottom: 6 }}>发现的问题</h4>
+                    <h4 className="sub-title">发现的问题</h4>
                     <FindingList findings={report.findings} />
                   </div>
-                  <hr className="divider" />
                   <div>
-                    <h4 style={{ marginBottom: 6 }}>话术要点</h4>
+                    <h4 className="sub-title">话术要点</h4>
                     <CoverageList coverage={report.coverage} judged={report.full || report.final} />
                   </div>
-                  {!report.final && (
-                    <LlmPanel review={report.llm} enabled={Boolean(settings?.llm.enabled)} />
-                  )}
+                  {!report.final && <LlmPanel review={report.llm} enabled={Boolean(settings?.llm.enabled)} />}
                 </>
               ) : (
                 <Empty>
                   {running
-                    ? `第一次分析在 ${clock(session.interval_seconds)}，还有 ${clock(Math.max(0, session.next_report_at - now))}`
+                    ? `第一次分析在 ${clock(session.interval_seconds)}，还有 ${untilNext}`
                     : "这一场太短，没有生成分析"}
                 </Empty>
               )}
             </div>
-          </section>
-
-          <section className="card">
+          )}
+          {tab === "rate" && (
             <div className="card-body">
               <RateChart data={session.minute_rates} band={{ min: pace.min_rate, max: pace.max_rate }} />
             </div>
-          </section>
-        </div>
+          )}
+        </section>
       </div>
     </div>
   );
