@@ -72,28 +72,38 @@ jobs:
       - name: 打包程序
         run: uv run pyinstaller packaging/voicedetect.spec --noconfirm
 
-      - name: 制作并安装安装程序（Windows）
+      - name: 制作安装程序（Windows）
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # 出错时把原因写成标注：不登录看不到运行日志
-          function Fail($title, $log) {
-            $tail = (Get-Content $log -Tail 20 -ErrorAction SilentlyContinue) -join "%0A"
-            Write-Output "::error title=$title::$tail"
-            exit 1
-          }
           $compileLog = Join-Path $env:RUNNER_TEMP "iscc.log"
           iscc "/DAppVersion=$env:VERSION" packaging\installer.iss *> $compileLog  # 这台机器上 iscc 在 PATH 里
-          if ($LASTEXITCODE -ne 0) { Fail "编译安装程序失败（退出码 $LASTEXITCODE）" $compileLog }
-          $installer = Get-ChildItem dist -Filter *.exe | Select-Object -First 1
+          if ($LASTEXITCODE -ne 0) {
+            # 出错时把原因写成标注：不登录看不到运行日志
+            Write-Output "::error title=编译安装程序失败（退出码 $LASTEXITCODE）::$((Get-Content $compileLog -Tail 20) -join '%0A')"
+            exit 1
+          }
+          $installer = Get-ChildItem dist -Filter *-windows-setup.exe | Select-Object -First 1
           Write-Output "::notice title=安装程序::$($installer.Name)，$([math]::Round($installer.Length / 1MB)) MB"
+          "INSTALLER=$($installer.FullName)" >> $env:GITHUB_ENV
+
+      - name: 检查安装向导的文字（Windows）
+        if: runner.os == 'Windows'
+        run: uv run python packaging/read_wizard.py "$INSTALLER"
+
+      - name: 静默安装（Windows）
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
           $target = Join-Path $env:RUNNER_TEMP "app"
           $setupLog = Join-Path $env:RUNNER_TEMP "setup.log"
           $arguments = "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=`"$target`"", "/LOG=`"$setupLog`""
-          $setup = Start-Process -Wait -PassThru -FilePath $installer.FullName -ArgumentList $arguments
-          if ($setup.ExitCode -ne 0) { Fail "安装失败（退出码 $($setup.ExitCode)）" $setupLog }
+          $setup = Start-Process -Wait -PassThru -FilePath $env:INSTALLER -ArgumentList $arguments
           $exe = Join-Path $target "VoiceDetect.exe"
-          if (-not (Test-Path $exe)) { Fail "安装后找不到 VoiceDetect.exe" $setupLog }
+          if ($setup.ExitCode -ne 0 -or -not (Test-Path $exe)) {
+            Write-Output "::error title=安装失败（退出码 $($setup.ExitCode)）::$((Get-Content $setupLog -Tail 20) -join '%0A')"
+            exit 1
+          }
           "APP_EXE=$exe" >> $env:GITHUB_ENV
 
       - name: 找到程序（macOS）
