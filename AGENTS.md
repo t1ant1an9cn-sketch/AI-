@@ -1,6 +1,6 @@
 # AI 开发协作规则
 
-这份文件说明 AI 如何参与本项目。项目目标和当前阶段以 [`README.md`](README.md) 为准。
+这份文件说明 AI 如何参与本项目。项目目标和当前阶段以 [`README.md`](README.md) 为准，实验事实和结论以 [`experiments/`](experiments/README.md) 中的记录为准。
 
 ## 开始工作前
 

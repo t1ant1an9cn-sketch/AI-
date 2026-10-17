@@ -34,6 +34,7 @@ uv run voicedetect models download|status|import <dir>
 - **识别接口**（`asr/base.py`）：`accept(samples) -> [AsrEvent]`、`flush()`、`speech_since`；事件分 `partial` 和 `final`，`final` 文字为空表示有人说话但没认出字（只用于停顿和说话时间）。
 - **事件**：后台线程经 `EventBus` 推给 WebSocket；界面用 `frontend/src/live.ts` 的 `applyEvent` 合并，重连时先收 `hello` 快照（`MonitorSession.snapshot()`）。新增事件或快照字段时，同时改 `frontend/src/types.ts`。
 - **数据模型**：`analysis/report.py` 和 `frameworks.py` 的 Pydantic 模型是接口、数据库 JSON 和前端类型的共同来源。数据库升级在 `storage.py` 的 `_MIGRATIONS` 追加函数并提高 `SCHEMA_VERSION`。
+- **录音**：设置开启后只录实时来源，采集线程入队前写 `数据目录/recordings/<场次ID>.wav`，与盯播同一时间轴（含被丢弃的音频）。不进数据库，按文件是否存在判断；接口按场次 ID 拼路径，ID 必须过 `config.recording_path` 的校验。
 
 ## 测试约定
 
@@ -52,3 +53,4 @@ uv run voicedetect models download|status|import <dir>
 
 - 暂存时列出具体路径或用 `git add -u`，提交前看 `git status`；`.local/`、`local-recordings/`、`.idea/`、`voicedetect/web/`、`frontend/node_modules/` 都被忽略，不要强制添加。
 - 仓库公开，提交前确认没有密钥、真实直播录音或转写。
+- 实验记录在 `experiments/`（编号文件，格式见其中的 README）：只提交计划、统计和结论；直播间名称、主播信息、录音、完整转写和复盘报告原件留在本机。
